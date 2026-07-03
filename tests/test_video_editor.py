@@ -4,7 +4,7 @@ from tests.make_dummy import make_dummy_set
 from src.preprocess import preprocess_all
 from src.config import load_config
 from src.sync_engine import compute_offsets
-from src.peak_detector import detect_peaks
+from src.peak_detector import detect_peaks, rms_db
 from src.segment_planner import build_plan
 from src.video_editor import render_plan, probe_duration
 
@@ -90,3 +90,89 @@ def test_render_multicam_mixed_resolution(tmp_path):
     # mismatched-resolution inputs were normalized to the common canvas and
     # the xfade composited cleanly at that size (no dimension-mismatch error)
     assert _dims(paths[0]) == (320, 180)
+
+
+def test_reaction_marker_lands_within_tolerance(tmp_path):
+    # DoD-3 characterization test: at an angle cut (camA buildup -> camB
+    # reaction xfade), a sharp audio marker placed at a known source time
+    # in the reaction segment must land at the mathematically predicted
+    # time in the rendered output, within a 0.1s A/V sync tolerance.
+    #
+    # Derivation: a 2-segment clip is buildup(camA,[start,T]) xfaded with
+    # reaction(camB,[seg1_in,seg1_out]) at offset = d0 - crossfade, where
+    # d0 = T - start = build_up_sec and seg1_in = T + offsets[camB] (NOTE:
+    # make_dummy_set's per-cam "offset" field is *not* wired into the
+    # pipeline anywhere -- real inter-camera offsets are always derived by
+    # compute_offsets() via audio cross-correlation, so they must be read
+    # back from the plan, not assumed to equal the literal dict value).
+    # A marker authored at camB *source* time Tb sits (Tb - seg1_in) into
+    # the reaction segment's own file, so in the xfade output it appears
+    # at:
+    #   expected = (d0 - crossfade) + (Tb - seg1_in)
+    raw = tmp_path / "raw"
+    Tb = 35.0
+    make_dummy_set(str(raw), [
+        {"name": "camA", "color": "red", "offset": 0.0,
+         "bursts": [(30, 32, 10)]},
+        {"name": "camB", "color": "green", "offset": 0.0,
+         # broad reaction burst so pick_reaction_angle picks camB, plus a
+         # short, sharp, much louder marker burst at Tb that dominates the
+         # reaction window and is trivially locatable via rms_db.
+         "bursts": [(30, 42, 16), (Tb, Tb + 0.6, 30)]},
+    ], duration=55.0)
+    res = preprocess_all(str(raw), str(tmp_path / "tv"), str(tmp_path / "ta"), fps=30)
+    cfg = _cfg(tmp_path)
+    offsets = compute_offsets(res["audio"], "camA")
+    peaks = detect_peaks(res["audio"]["camA"], cfg)
+    plan = build_plan(res, offsets, peaks, "camA", cfg)
+
+    assert len(plan["clips"]) == 1
+    clip = plan["clips"][0]
+    segments = clip["segments"]
+    assert len(segments) == 2, (
+        f"expected a 2-segment angle switch, got {len(segments)}: {segments}"
+    )
+    assert segments[0]["cam"] == "camA"
+    assert segments[1]["cam"] == "camB"
+
+    T_used = clip["T"]
+    start = segments[0]["src_in"]
+    seg1_in = segments[1]["src_in"]
+    assert start == max(0.0, T_used - cfg.build_up_sec)
+
+    out_dir = tmp_path / "out"
+    paths = render_plan(plan, str(out_dir))
+    assert len(paths) == 1
+
+    # Extract mono 16kHz audio from the rendered clip and locate the
+    # marker's onset time.
+    wav_path = str(tmp_path / "marker.wav")
+    subprocess.run(
+        ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+         "-i", paths[0], "-vn", "-ac", "1", "-ar", "16000", wav_path],
+        check=True,
+    )
+    times, db = rms_db(wav_path, 0.1)
+    # The marker burst (gain 30) is much louder than everything else in the
+    # mix, including the broad reaction burst (gain 16) it's embedded in --
+    # its plateau sits near the track's max dB while the reaction burst's
+    # own floor sits well below it. argmax() alone is ambiguous over a
+    # flat-topped burst plateau (any frame on the plateau could "win" by
+    # noise), so instead take the *onset*: the first frame within 3dB of
+    # the peak. That isolates the marker's rising edge specifically,
+    # rather than the broader reaction burst's onset or an arbitrary point
+    # on the marker's plateau.
+    peak_db = float(db.max())
+    onset_idx = next(i for i, d in enumerate(db) if d >= peak_db - 3.0)
+    measured_marker_time = float(times[onset_idx])
+
+    d0 = T_used - start
+    off = d0 - cfg.crossfade_sec
+    expected = off + (Tb - seg1_in)
+    diff = abs(measured_marker_time - expected)
+    assert diff <= 0.15, (
+        f"A/V sync miss at angle cut: measured={measured_marker_time:.3f}s "
+        f"expected={expected:.3f}s diff={diff:.3f}s "
+        f"(T_used={T_used}, start={start}, seg1_in={seg1_in}, "
+        f"crossfade={cfg.crossfade_sec})"
+    )

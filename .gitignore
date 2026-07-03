@@ -1,0 +1,9 @@
+data/raw/*
+data/temp_video/*
+data/temp_audio/*
+data/output/*
+!data/**/.gitkeep
+__pycache__/
+*.pyc
+.venv/
+.DS_Store

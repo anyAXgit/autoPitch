@@ -1,6 +1,7 @@
 from tests.make_dummy import make_dummy_set
 from src.preprocess import preprocess_all
 from src.sync_engine import compute_offsets
+from src import sync_engine
 
 
 def test_recovers_known_offset(tmp_path):
@@ -25,3 +26,30 @@ def test_single_cam_returns_zero(tmp_path):
     ], duration=20.0)
     res = preprocess_all(str(raw), str(tmp_path / "tv"), str(tmp_path / "ta"), fps=30)
     assert compute_offsets(res["audio"], ref_cam="camA") == {"camA": 0.0}
+
+
+def test_downsample_path_preserves_offset(tmp_path, monkeypatch):
+    # Force the downsample path to trigger on a short (~23s) dummy set by
+    # lowering the threshold, instead of needing real 10+ minute footage.
+    # _MAX_SECONDS=0.03 with a 23s / 16kHz signal yields factor=767, so
+    # sr // factor (old, buggy) = 20 vs sr / factor (fixed) = 20.86 -- a
+    # ~4% relative bias. camB is shifted +8s (rather than the more typical
+    # 1.5s) so that bias is large enough in absolute seconds to clearly
+    # exceed the assertion tolerance below when the bug is present, proving
+    # this test actually catches the sr // factor regression.
+    monkeypatch.setattr(sync_engine, "_MAX_SECONDS", 0.03)
+
+    raw = tmp_path / "raw"
+    make_dummy_set(str(raw), [
+        {"name": "camA", "color": "red", "offset": 0.0,
+         "bursts": [(3.0, 5.0, 10.0), (13.0, 15.0, 10.0)]},
+        {"name": "camB", "color": "green", "offset": 8.0,
+         "bursts": [(11.0, 13.0, 10.0), (21.0, 23.0, 10.0)]},
+    ], duration=23.0)
+    res = preprocess_all(str(raw), str(tmp_path / "tv"), str(tmp_path / "ta"), fps=30)
+    offsets = compute_offsets(res["audio"], ref_cam="camA")
+    assert offsets["camA"] == 0.0
+    # Downsampling loses some resolution, so allow a slightly looser
+    # tolerance than the full-resolution test, but it must not be off by a
+    # systematic factor (which the old sr // factor bug caused).
+    assert abs(offsets["camB"] - 8.0) < 0.2

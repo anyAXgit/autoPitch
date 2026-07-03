@@ -1,0 +1,13 @@
+fps: 30
+build_up_sec: 5
+min_len_sec: 10
+max_len_sec: 25
+peak:
+  rms_window_sec: 0.5
+  threshold_k: 3.0
+  min_gap_sec: 15
+  max_clips: null
+reaction:
+  margin_db: 6
+  hold_sec: 2
+crossfade_sec: 0.5

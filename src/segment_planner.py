@@ -8,7 +8,14 @@ def reaction_end(times, db, T, cfg):
     start = max(0.0, T - cfg.build_up_sec)
     lo = start + cfg.min_len_sec
     hi = start + cfg.max_len_sec
-    quiet_level = np.median(db) + cfg.margin_db   # below this = crowd settled
+    # "Settled" must be measured against the pre-goal ambient, not the
+    # whole-track median: celebration audio can dominate (or merely sit
+    # close to) the track median, which would make the crowd's own
+    # cheering look "quiet" and collapse the clip to min_len. Use the
+    # buildup window [start, T] as the quiet baseline instead.
+    pre_mask = (times >= start) & (times <= T)
+    pre_baseline = np.median(db[pre_mask]) if np.any(pre_mask) else np.median(db)
+    quiet_level = pre_baseline + cfg.margin_db   # below this = crowd settled
     hold_needed = cfg.hold_sec
     quiet_run_start = None
     end = hi

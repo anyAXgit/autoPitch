@@ -55,6 +55,33 @@ def test_multicam_reaction_uses_louder_subcam(tmp_path):
     assert clip["segments"][1]["cam"] == "camB"            # louder reaction
 
 
+def test_mean_db_cache_preserves_angle_pick(tmp_path):
+    # Behavior-parity guard for the RMS-caching refactor: build_plan must
+    # decode each cam's audio once (via an internal rms_cache) rather than
+    # re-decoding the whole file per peak per cam, but the angle pick must
+    # be identical to the pre-refactor per-call rms_db() behavior. Uses
+    # three sub-cams (not just camB/camC) with a clearly distinct loudest
+    # one, so a cache bug that mixes up per-cam (times, db) arrays -- e.g.
+    # reusing camA's or another cam's array for the wrong cam -- would pick
+    # the wrong angle and fail this test.
+    raw = tmp_path / "raw"
+    make_dummy_set(str(raw), [
+        {"name": "camA", "color": "red", "offset": 0.0, "bursts": [(30, 32, 10)]},
+        {"name": "camB", "color": "green", "offset": 0.0, "bursts": [(30, 34, 6)]},
+        {"name": "camC", "color": "blue", "offset": 0.0, "bursts": [(30, 34, 22)]},
+        {"name": "camD", "color": "yellow", "offset": 0.0, "bursts": [(30, 34, 4)]},
+    ], duration=50.0)
+    res = preprocess_all(str(raw), str(tmp_path / "tv"), str(tmp_path / "ta"), fps=30)
+    cfg = _cfg(tmp_path)
+    offsets = compute_offsets(res["audio"], "camA")
+    peaks = detect_peaks(res["audio"]["camA"], cfg)
+    plan = build_plan(res, offsets, peaks, "camA", cfg)
+    clip = plan["clips"][0]
+    assert len(clip["segments"]) == 2
+    assert clip["segments"][0]["cam"] == "camA"             # build-up
+    assert clip["segments"][1]["cam"] == "camC"             # loudest reaction (gain 22)
+
+
 def _reaction_cfg():
     return Config(build_up_sec=5, min_len_sec=8, max_len_sec=25,
                   margin_db=6, hold_sec=2, rms_window_sec=0.5)

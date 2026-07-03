@@ -10,6 +10,24 @@ def _ffmpeg(args):
     )
 
 
+def _ensure_filters():
+    """Verify the installed ffmpeg build supports the filters render_plan
+    depends on (xfade/acrossfade for angle-cut crossfades). A stripped-down
+    ffmpeg build silently lacks these, which otherwise surfaces as an opaque
+    CalledProcessError deep into a multi-hour render. Fail fast instead."""
+    out = subprocess.run(
+        ["ffmpeg", "-hide_banner", "-filters"],
+        capture_output=True, text=True, check=True,
+    )
+    listing = out.stdout
+    missing = [f for f in ("xfade", "acrossfade") if f not in listing]
+    if missing:
+        raise RuntimeError(
+            "ffmpeg is missing the 'xfade'/'acrossfade' filters — "
+            "install a full ffmpeg build"
+        )
+
+
 def probe_duration(path):
     out = subprocess.run(
         ["ffprobe", "-v", "error", "-show_entries", "format=duration",
@@ -57,6 +75,7 @@ def render_clip(clip, fps, crossfade_sec, work_dir, out_path):
 
 
 def render_plan(plan, output_dir):
+    _ensure_filters()
     os.makedirs(output_dir, exist_ok=True)
     fps = plan["fps"]
     xfade = plan["crossfade_sec"]

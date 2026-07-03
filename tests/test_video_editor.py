@@ -1,11 +1,13 @@
 import os
 import subprocess
+import pytest
 from tests.make_dummy import make_dummy_set
 from src.preprocess import preprocess_all
 from src.config import load_config
 from src.sync_engine import compute_offsets
 from src.peak_detector import detect_peaks, rms_db
 from src.segment_planner import build_plan
+from src import video_editor
 from src.video_editor import render_plan, probe_duration
 
 
@@ -27,6 +29,52 @@ def _dims(path):
         capture_output=True, text=True, check=True).stdout.split()
     w, h = int(out[0]), int(out[1])
     return w, h
+
+
+def test_render_plan_checks_ffmpeg_filters(tmp_path, monkeypatch):
+    # A stripped-down ffmpeg build (missing xfade/acrossfade) must fail fast
+    # and clearly at the top of render_plan, rather than mid-render with an
+    # opaque CalledProcessError. Monkeypatch subprocess.run so the
+    # `-filters` probe returns a filter listing without xfade/acrossfade,
+    # and assert render_plan raises RuntimeError before doing any real
+    # rendering work (no ffmpeg encode needed -- a minimal single-clip plan
+    # with a nonexistent source path is enough, since the guard must raise
+    # before render_segment ever touches it).
+    class FakeCompletedProcess:
+        def __init__(self, stdout):
+            self.stdout = stdout
+            self.stderr = ""
+            self.returncode = 0
+
+    def fake_run(args, **kwargs):
+        assert args[:3] == ["ffmpeg", "-hide_banner", "-filters"], (
+            "test only stubs the -filters probe; real ffmpeg calls should "
+            "never be reached because the guard must raise first"
+        )
+        # Realistic-looking filter listing, but with xfade/acrossfade
+        # deliberately absent (as on a stripped ffmpeg build).
+        listing = (
+            " T.. concat           A+V->A+V   Concatenate audio and video streams.\n"
+            " ... scale            V->V       Scale the input video size and/or convert the image format.\n"
+            " ... fade             V->V       Fade in/out input video.\n"
+        )
+        return FakeCompletedProcess(listing)
+
+    monkeypatch.setattr(video_editor.subprocess, "run", fake_run)
+
+    minimal_plan = {
+        "fps": 30,
+        "crossfade_sec": 0.5,
+        "clips": [
+            {"T": 5.0, "segments": [
+                {"cam": "camA", "src": str(tmp_path / "does_not_exist.mp4"),
+                 "src_in": 0.0, "src_out": 5.0},
+            ]},
+        ],
+    }
+    out_dir = tmp_path / "out"
+    with pytest.raises(RuntimeError, match="xfade"):
+        render_plan(minimal_plan, str(out_dir))
 
 
 def test_render_multicam_clip(tmp_path):

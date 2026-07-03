@@ -33,13 +33,12 @@ def reaction_end(times, db, T, cfg):
     return float(min(max(end, lo), hi))
 
 
-def _mean_db(audio_path, a, b, cfg):
-    times, db = rms_db(audio_path, cfg.rms_window_sec)
+def _mean_db(times, db, a, b):
     mask = (times >= a) & (times < b)
     return float(np.mean(db[mask])) if mask.any() else -np.inf
 
 
-def pick_reaction_angle(pre, offsets, camA, T, end, cfg):
+def pick_reaction_angle(pre, offsets, camA, T, end, cfg, rms_cache):
     if not pre["is_multicam"]:
         return camA
     best, best_db = camA, -np.inf
@@ -48,7 +47,8 @@ def pick_reaction_angle(pre, offsets, camA, T, end, cfg):
             continue
         a = max(0.0, T + offsets[cam])
         b = end + offsets[cam]
-        m = _mean_db(pre["audio"][cam], a, b, cfg)
+        cam_times, cam_db = rms_cache[cam]
+        m = _mean_db(cam_times, cam_db, a, b)
         if m > best_db:
             best, best_db = cam, m
     return best
@@ -56,12 +56,18 @@ def pick_reaction_angle(pre, offsets, camA, T, end, cfg):
 
 def build_plan(pre, offsets, peaks, camA, cfg):
     times, db = rms_db(pre["audio"][camA], cfg.rms_window_sec)
+    rms_cache = {camA: (times, db)}
+    if pre["is_multicam"]:
+        for cam in pre["cams"]:
+            if cam == camA:
+                continue
+            rms_cache[cam] = rms_db(pre["audio"][cam], cfg.rms_window_sec)
     clips = []
     for T in peaks:
         start = max(0.0, T - cfg.build_up_sec)
         end = reaction_end(times, db, T, cfg)
         if pre["is_multicam"]:
-            react_cam = pick_reaction_angle(pre, offsets, camA, T, end, cfg)
+            react_cam = pick_reaction_angle(pre, offsets, camA, T, end, cfg, rms_cache)
             if react_cam != camA:
                 segments = [
                     {"cam": camA, "src": pre["video"][camA],

@@ -18,7 +18,7 @@ def cam_id(path):
     return os.path.splitext(os.path.basename(path))[0]
 
 
-def preprocess_all(raw_dir, temp_video_dir, temp_audio_dir, fps):
+def preprocess_all(raw_dir, temp_video_dir, temp_audio_dir, fps, width=1920, height=1080):
     os.makedirs(temp_video_dir, exist_ok=True)
     os.makedirs(temp_audio_dir, exist_ok=True)
     raws = list_raw(raw_dir)
@@ -30,8 +30,12 @@ def preprocess_all(raw_dir, temp_video_dir, temp_audio_dir, fps):
         cams.append(cid)
         vout = os.path.join(temp_video_dir, f"{cid}.mp4")
         aout = os.path.join(temp_audio_dir, f"{cid}.wav")
+        vf = (
+            f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
+            f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1"
+        )
         _ffmpeg([
-            "-i", path, "-vsync", "cfr", "-r", str(fps),
+            "-i", path, "-vf", vf, "-vsync", "cfr", "-r", str(fps),
             "-c:v", "libx264", "-pix_fmt", "yuv420p",
             "-c:a", "aac", vout,
         ])

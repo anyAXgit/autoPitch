@@ -15,6 +15,16 @@ def _frame_rates(path):
     return out  # [r_frame_rate, avg_frame_rate], e.g. ["30/1", "30/1"]
 
 
+def _dims(path):
+    out = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0",
+         "-show_entries", "stream=width,height",
+         "-of", "default=noprint_wrappers=1:nokey=1", path],
+        capture_output=True, text=True, check=True).stdout.split()
+    w, h = int(out[0]), int(out[1])
+    return w, h
+
+
 def test_cam_ordering_and_multicam_flag(tmp_path):
     raw = tmp_path / "raw"
     make_dummy_set(str(raw), [
@@ -76,3 +86,17 @@ def test_multicam_flag_true(tmp_path):
     res = preprocess_all(str(raw), str(tv), str(ta), fps=30)
     assert res["is_multicam"] is True
     assert res["cams"] == ["camA", "camB"]
+
+
+def test_normalizes_mixed_resolutions(tmp_path):
+    raw = tmp_path / "raw"
+    make_dummy_set(str(raw), [
+        {"name": "camA", "color": "red", "offset": 0.0, "bursts": [(2, 4, 10)],
+         "size": "320x240"},
+        {"name": "camB", "color": "green", "offset": 0.5, "bursts": [(2.5, 4.5, 10)],
+         "size": "640x360"},
+    ], duration=8.0)
+    tv, ta = tmp_path / "tv", tmp_path / "ta"
+    res = preprocess_all(str(raw), str(tv), str(ta), fps=30, width=256, height=144)
+    assert _dims(res["video"]["camA"]) == (256, 144)
+    assert _dims(res["video"]["camB"]) == (256, 144)

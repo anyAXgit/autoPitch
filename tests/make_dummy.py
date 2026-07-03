@@ -25,10 +25,11 @@ def make_dummy_set(out_dir, cams, duration=45.0, fps=30):
     for cam in cams:
         name = cam["name"]
         path = os.path.join(out_dir, f"{name}.mp4")
+        size = cam.get("size", "320x240")
         afilter, _ = _volume_expr(cam.get("bursts", []))
         _ffmpeg([
             "-f", "lavfi", "-i",
-            f"color=c={cam['color']}:s=320x240:d={duration}:r={fps}",
+            f"color=c={cam['color']}:s={size}:d={duration}:r={fps}",
             "-f", "lavfi", "-i",
             f"sine=frequency=200:duration={duration}:sample_rate=44100",
             "-af", afilter,

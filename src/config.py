@@ -15,6 +15,8 @@ class Config:
     margin_db: float = 6.0
     hold_sec: float = 2.0
     crossfade_sec: float = 0.5
+    output_width: int = 1920
+    output_height: int = 1080
 
 
 def load_config(path: str = "config.yaml") -> Config:
@@ -35,4 +37,6 @@ def load_config(path: str = "config.yaml") -> Config:
         margin_db=reaction.get("margin_db", defaults.margin_db),
         hold_sec=reaction.get("hold_sec", defaults.hold_sec),
         crossfade_sec=raw.get("crossfade_sec", defaults.crossfade_sec),
+        output_width=raw.get("output_width", defaults.output_width),
+        output_height=raw.get("output_height", defaults.output_height),
     )

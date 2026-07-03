@@ -1,0 +1,73 @@
+import numpy as np
+from src.peak_detector import rms_db
+
+
+def reaction_end(times, db, T, cfg):
+    """First time after T that stays quiet for hold_sec, clamped to
+    [min_len, max_len] measured from T-build_up."""
+    start = max(0.0, T - cfg.build_up_sec)
+    lo = start + cfg.min_len_sec
+    hi = start + cfg.max_len_sec
+    quiet_level = np.median(db) + cfg.margin_db   # below this = crowd settled
+    hold_needed = cfg.hold_sec
+    quiet_run_start = None
+    end = hi
+    for t, d in zip(times, db):
+        if t <= T:
+            continue
+        if d < quiet_level:
+            if quiet_run_start is None:
+                quiet_run_start = t
+            elif t - quiet_run_start >= hold_needed:
+                end = quiet_run_start
+                break
+        else:
+            quiet_run_start = None
+    return float(min(max(end, lo), hi))
+
+
+def _mean_db(audio_path, a, b, cfg):
+    times, db = rms_db(audio_path, cfg.rms_window_sec)
+    mask = (times >= a) & (times < b)
+    return float(np.mean(db[mask])) if mask.any() else -np.inf
+
+
+def pick_reaction_angle(pre, offsets, camA, T, end, cfg):
+    if not pre["is_multicam"]:
+        return camA
+    best, best_db = camA, -np.inf
+    for cam in pre["cams"]:
+        if cam == camA:
+            continue
+        a = max(0.0, T + offsets[cam])
+        b = end + offsets[cam]
+        m = _mean_db(pre["audio"][cam], a, b, cfg)
+        if m > best_db:
+            best, best_db = cam, m
+    return best
+
+
+def build_plan(pre, offsets, peaks, camA, cfg):
+    times, db = rms_db(pre["audio"][camA], cfg.rms_window_sec)
+    clips = []
+    for T in peaks:
+        start = max(0.0, T - cfg.build_up_sec)
+        end = reaction_end(times, db, T, cfg)
+        if pre["is_multicam"]:
+            react_cam = pick_reaction_angle(pre, offsets, camA, T, end, cfg)
+            if react_cam != camA:
+                segments = [
+                    {"cam": camA, "src": pre["video"][camA],
+                     "src_in": start, "src_out": T},
+                    {"cam": react_cam, "src": pre["video"][react_cam],
+                     "src_in": max(0.0, T + offsets[react_cam]),
+                     "src_out": end + offsets[react_cam]},
+                ]
+            else:
+                segments = [{"cam": camA, "src": pre["video"][camA],
+                             "src_in": start, "src_out": end}]
+        else:
+            segments = [{"cam": camA, "src": pre["video"][camA],
+                         "src_in": start, "src_out": end}]
+        clips.append({"T": float(T), "segments": segments})
+    return {"fps": cfg.fps, "crossfade_sec": cfg.crossfade_sec, "clips": clips}

@@ -1,0 +1,48 @@
+import os
+import glob
+import subprocess
+
+
+def _ffmpeg(args):
+    subprocess.run(
+        ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", *args],
+        check=True,
+    )
+
+
+def list_raw(raw_dir):
+    return sorted(glob.glob(os.path.join(raw_dir, "*.mp4")))
+
+
+def cam_id(path):
+    return os.path.splitext(os.path.basename(path))[0]
+
+
+def preprocess_all(raw_dir, temp_video_dir, temp_audio_dir, fps):
+    os.makedirs(temp_video_dir, exist_ok=True)
+    os.makedirs(temp_audio_dir, exist_ok=True)
+    raws = list_raw(raw_dir)
+    if not raws:
+        raise FileNotFoundError(f"No .mp4 files in {raw_dir}")
+    cams, video, audio = [], {}, {}
+    for path in raws:
+        cid = cam_id(path)
+        cams.append(cid)
+        vout = os.path.join(temp_video_dir, f"{cid}.mp4")
+        aout = os.path.join(temp_audio_dir, f"{cid}.wav")
+        _ffmpeg([
+            "-i", path, "-vsync", "cfr", "-r", str(fps),
+            "-c:v", "libx264", "-pix_fmt", "yuv420p",
+            "-c:a", "aac", vout,
+        ])
+        _ffmpeg([
+            "-i", path, "-vn", "-ac", "1", "-ar", "16000", aout,
+        ])
+        video[cid] = vout
+        audio[cid] = aout
+    return {
+        "cams": cams,
+        "video": video,
+        "audio": audio,
+        "is_multicam": len(cams) > 1,
+    }

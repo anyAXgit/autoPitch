@@ -52,3 +52,32 @@ def test_e2e_singlecam(tmp_path, monkeypatch):
     for clip in plan["clips"]:
         assert len(clip["segments"]) == 1
         assert clip["segments"][0]["cam"] == "camA"
+
+
+def test_e2e_main_cam_override(tmp_path, monkeypatch):
+    raw = tmp_path / "raw"
+    # "camA" sorts first alphabetically but is QUIET (weak burst only).
+    # "camz" sorts after camA but has the REAL goal bursts.
+    # Uppercase 'A' (65) < lowercase 'z' (122), so sorted() -> ["camA", "camz"],
+    # making camA the default (wrong) choice unless main_cam override works.
+    make_dummy_set(str(raw), [
+        {"name": "camA", "color": "red", "offset": 0.0,
+         "bursts": [(25, 27, 3)]},
+        {"name": "camz", "color": "green", "offset": 0.0,
+         "bursts": [(20, 22, 12), (40, 42, 12)]},
+    ], duration=55.0)
+    monkeypatch.chdir(tmp_path)
+    import yaml
+    (tmp_path / "config.yaml").write_text(yaml.safe_dump({
+        "main_cam": "camz",
+        "build_up_sec": 5, "min_len_sec": 8, "max_len_sec": 18,
+        "crossfade_sec": 0.5, "peak": {"min_gap_sec": 10, "threshold_k": 2.0},
+    }))
+    result = run(raw_dir=str(raw), config_path=str(tmp_path / "config.yaml"))
+    assert len(result["peaks"]) == 2
+    for p in result["peaks"]:
+        assert any(abs(p - t) <= 1.5 for t in (20, 40)), f"unexpected peak {p}"
+
+    plan = result["plan"]
+    for clip in plan["clips"]:
+        assert clip["segments"][0]["cam"] == "camz"

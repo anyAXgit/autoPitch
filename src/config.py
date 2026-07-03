@@ -17,6 +17,7 @@ class Config:
     crossfade_sec: float = 0.5
     output_width: int = 1920
     output_height: int = 1080
+    main_cam: "str | None" = None
 
 
 def load_config(path: str = "config.yaml") -> Config:
@@ -39,4 +40,5 @@ def load_config(path: str = "config.yaml") -> Config:
         crossfade_sec=raw.get("crossfade_sec", defaults.crossfade_sec),
         output_width=raw.get("output_width", defaults.output_width),
         output_height=raw.get("output_height", defaults.output_height),
+        main_cam=raw.get("main_cam", defaults.main_cam),
     )

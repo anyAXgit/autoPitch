@@ -13,8 +13,13 @@ OUTPUT_DIR = "data/output"
 def run(raw_dir="data/raw", config_path="config.yaml"):
     cfg = load_config(config_path)
     print(f"[1/5] preprocess: {raw_dir}")
-    pre = preprocess_all(raw_dir, TEMP_VIDEO, TEMP_AUDIO, cfg.fps)
-    camA = pre["cams"][0]
+    pre = preprocess_all(
+        raw_dir, TEMP_VIDEO, TEMP_AUDIO, cfg.fps,
+        cfg.output_width, cfg.output_height,
+    )
+    if cfg.main_cam and cfg.main_cam not in pre["cams"]:
+        print(f"[warn] main_cam '{cfg.main_cam}' not found in {pre['cams']}; using {pre['cams'][0]}")
+    camA = cfg.main_cam if (cfg.main_cam and cfg.main_cam in pre["cams"]) else pre["cams"][0]
     print(f"      cams={pre['cams']} multicam={pre['is_multicam']}")
 
     if pre["is_multicam"]:

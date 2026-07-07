@@ -146,9 +146,11 @@ def test_reaction_marker_lands_within_tolerance(tmp_path):
     # in the reaction segment must land at the mathematically predicted
     # time in the rendered output, within a 0.1s A/V sync tolerance.
     #
-    # Derivation: a 2-segment clip is buildup(camA,[start,T]) xfaded with
+    # Derivation: a 2-segment clip is buildup(camA,[start,cut]) xfaded with
     # reaction(camB,[seg1_in,seg1_out]) at offset = d0 - crossfade, where
-    # d0 = T - start = build_up_sec and seg1_in = T + offsets[camB] (NOTE:
+    # d0 = cut - start is segment 0's actual length (the buildup now holds a
+    # post_goal_sec beat past T before the cut, so d0 != build_up_sec) and
+    # seg1_in = cut + offsets[camB] (NOTE:
     # make_dummy_set's per-cam "offset" field is *not* wired into the
     # pipeline anywhere -- real inter-camera offsets are always derived by
     # compute_offsets() via audio cross-correlation, so they must be read
@@ -158,18 +160,32 @@ def test_reaction_marker_lands_within_tolerance(tmp_path):
     # at:
     #   expected = (d0 - crossfade) + (Tb - seg1_in)
     raw = tmp_path / "raw"
-    Tb = 35.0
+    Tb = 38.0
     make_dummy_set(str(raw), [
+        # Long celebration on BOTH cams so (a) reaction_end extends the clip,
+        # giving a wide reaction window even after the post-goal hold eats its
+        # front, and (b) the two broad bursts share a shape so compute_offsets
+        # locks to ~0 (a mismatched narrow/broad pair aliases to a spurious
+        # offset). camA drives goal detection + reaction_end; camB carries the
+        # sharp marker at Tb, placed well inside [cut, end].
         {"name": "camA", "color": "red", "offset": 0.0,
-         "bursts": [(30, 32, 10)]},
+         "bursts": [(30, 44, 10)]},
         {"name": "camB", "color": "green", "offset": 0.0,
          # broad reaction burst so pick_reaction_angle picks camB, plus a
          # short, sharp, much louder marker burst at Tb that dominates the
          # reaction window and is trivially locatable via rms_db.
-         "bursts": [(30, 42, 16), (Tb, Tb + 0.6, 30)]},
+         "bursts": [(30, 44, 16), (Tb, Tb + 0.6, 30)]},
     ], duration=55.0)
     res = preprocess_all(str(raw), str(tmp_path / "tv"), str(tmp_path / "ta"), fps=30)
-    cfg = _cfg(tmp_path)
+    # Large min_gap so the long single celebration collapses to ONE peak
+    # (the 14s plateau would otherwise split into ~3 clusters at min_gap=5).
+    import yaml
+    cfg_path = tmp_path / "config.yaml"
+    cfg_path.write_text(yaml.safe_dump({
+        "build_up_sec": 5, "min_len_sec": 8, "max_len_sec": 18,
+        "crossfade_sec": 0.5, "peak": {"min_gap_sec": 30, "threshold_k": 2.0},
+    }))
+    cfg = load_config(str(cfg_path))
     offsets = compute_offsets(res["audio"], "camA")
     peaks = detect_peaks(res["audio"]["camA"], cfg)
     plan = build_plan(res, offsets, peaks, "camA", cfg)
@@ -222,7 +238,7 @@ def test_reaction_marker_lands_within_tolerance(tmp_path):
     # measurement budget (0.2s), deliberately looser than the product's <0.1s
     # sync target: a genuine render-offset bug shifts the marker by a full
     # crossfade (~0.5s), which still fails this comfortably.
-    d0 = T_used - start
+    d0 = segments[0]["src_out"] - start   # actual buildup length (start..cut)
     off = d0 - cfg.crossfade_sec
     expected = off + (Tb - seg1_in)
     diff = abs(measured_marker_time - expected)

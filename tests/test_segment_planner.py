@@ -82,6 +82,61 @@ def test_mean_db_cache_preserves_angle_pick(tmp_path):
     assert clip["segments"][1]["cam"] == "camC"             # loudest reaction (gain 22)
 
 
+def _cfg_yaml(tmp_path, reaction=None, **top):
+    import yaml
+    d = {"build_up_sec": 5, "min_len_sec": 8, "max_len_sec": 20,
+         "peak": {"min_gap_sec": 5, "threshold_k": 2.0}}
+    d.update(top)
+    if reaction:
+        d["reaction"] = reaction
+    p = tmp_path / "config.yaml"
+    p.write_text(yaml.safe_dump(d))
+    return load_config(str(p))
+
+
+def _multicam_res(tmp_path):
+    raw = tmp_path / "raw"
+    make_dummy_set(str(raw), [
+        {"name": "camA", "color": "red", "offset": 0.0, "bursts": [(30, 32, 10)]},
+        {"name": "camB", "color": "green", "offset": 0.0, "bursts": [(30, 34, 18)]},
+    ], duration=50.0)
+    res = preprocess_all(str(raw), str(tmp_path / "tv"), str(tmp_path / "ta"), fps=30)
+    offsets = compute_offsets(res["audio"], "camA")
+    return res, offsets
+
+
+def test_angle_cut_holds_post_goal(tmp_path):
+    # The Cam-A buildup must hold PAST the goal peak T before switching to
+    # the reaction cam (not cut exactly at T), and the reaction segment must
+    # start where the buildup ends and survive with >= min_reaction_sec.
+    res, offsets = _multicam_res(tmp_path)
+    cfg = _cfg_yaml(tmp_path, reaction={"post_goal_sec": 2.5, "min_reaction_sec": 2})
+    peaks = detect_peaks(res["audio"]["camA"], cfg)
+    plan = build_plan(res, offsets, peaks, "camA", cfg)
+    clip = plan["clips"][0]
+    T = clip["T"]
+    a, b = clip["segments"]
+    assert len(clip["segments"]) == 2
+    assert a["src_out"] > T                                   # holds past the goal
+    assert a["src_out"] <= T + cfg.post_goal_sec + 1e-6       # never more than post_goal
+    assert abs(b["src_in"] - a["src_out"]) < 0.6             # reaction starts at the cut (offset~0)
+    assert (b["src_out"] - b["src_in"]) >= cfg.min_reaction_sec - 0.6
+
+
+def test_post_goal_clamped_to_end(tmp_path):
+    # With a post_goal larger than the whole celebration, the cut must clamp
+    # to end - min_reaction (not run past the clip), keeping the reaction
+    # segment exactly min_reaction_sec long.
+    res, offsets = _multicam_res(tmp_path)
+    cfg = _cfg_yaml(tmp_path, reaction={"post_goal_sec": 100, "min_reaction_sec": 2})
+    peaks = detect_peaks(res["audio"]["camA"], cfg)
+    plan = build_plan(res, offsets, peaks, "camA", cfg)
+    a, b = plan["clips"][0]["segments"]
+    end = b["src_out"]                                        # offset ~0
+    assert abs(a["src_out"] - (end - cfg.min_reaction_sec)) < 0.1   # cut clamped to end-min_reaction
+    assert abs((b["src_out"] - b["src_in"]) - cfg.min_reaction_sec) < 0.1
+
+
 def _reaction_cfg():
     return Config(build_up_sec=5, min_len_sec=8, max_len_sec=25,
                   margin_db=6, hold_sec=2, rms_window_sec=0.5)

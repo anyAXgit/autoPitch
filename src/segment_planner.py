@@ -65,15 +65,24 @@ def build_plan(pre, offsets, peaks, camA, cfg):
     clips = []
     for T in peaks:
         start = max(0.0, T - cfg.build_up_sec)
-        end = reaction_end(times, db, T, cfg)
+        hi = start + cfg.max_len_sec
+        end = min(reaction_end(times, db, T, cfg) + cfg.tail_sec, hi)
         if pre["is_multicam"]:
             react_cam = pick_reaction_angle(pre, offsets, camA, T, end, cfg, rms_cache)
             if react_cam != camA:
+                # Hold Cam A a beat past the goal peak before switching to the
+                # reaction angle (goal peak T = loudest cheer, slightly after
+                # the ball crosses the line), so the ball settling into the net
+                # and the first beat of celebration play on the main cam. Grow
+                # `end` if needed so the reaction segment keeps at least
+                # min_reaction_sec, clamped under max_len.
+                end = min(max(end, T + cfg.post_goal_sec + cfg.min_reaction_sec), hi)
+                cut = max(T, min(T + cfg.post_goal_sec, end - cfg.min_reaction_sec))
                 segments = [
                     {"cam": camA, "src": pre["video"][camA],
-                     "src_in": start, "src_out": T},
+                     "src_in": start, "src_out": cut},
                     {"cam": react_cam, "src": pre["video"][react_cam],
-                     "src_in": max(0.0, T + offsets[react_cam]),
+                     "src_in": max(0.0, cut + offsets[react_cam]),
                      "src_out": end + offsets[react_cam]},
                 ]
             else:

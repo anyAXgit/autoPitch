@@ -10,6 +10,9 @@ peak:
 reaction:
   margin_db: 6
   hold_sec: 2
+  post_goal_sec: 2.5    # hold Cam A this long past the goal before the angle cut
+  min_reaction_sec: 2   # guarantee the reaction segment is at least this long
+  tail_sec: 0           # extra seconds appended to each clip's end (0 = off)
 crossfade_sec: 0.5
 output_width: 1920
 output_height: 1080

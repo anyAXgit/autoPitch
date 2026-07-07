@@ -106,6 +106,40 @@ def test_render_multicam_clip(tmp_path):
     assert 7.0 <= probe_duration(paths[0]) <= 19
 
 
+def test_render_plan_mixes_bgm(tmp_path):
+    # Rendering with a bgm file mixes music UNDER the highlight (video + audio
+    # preserved, duration unchanged -- bgm is looped/ducked, not appended).
+    raw = tmp_path / "raw"
+    make_dummy_set(str(raw), [
+        {"name": "camA", "color": "red", "offset": 0.0, "bursts": [(30, 32, 10)]},
+        {"name": "camB", "color": "green", "offset": 0.0, "bursts": [(30, 34, 18)]},
+    ], duration=55.0)
+    res = preprocess_all(str(raw), str(tmp_path / "tv"), str(tmp_path / "ta"),
+                         fps=30, width=320, height=180)
+    cfg = _cfg(tmp_path)
+    offsets = compute_offsets(res["audio"], "camA")
+    peaks = detect_peaks(res["audio"]["camA"], cfg)
+    plan = build_plan(res, offsets, peaks, "camA", cfg)
+
+    # short bgm; mix_bgm loops it to cover the clip
+    bgm = str(tmp_path / "bgm.m4a")
+    subprocess.run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                    "-f", "lavfi", "-i", "sine=frequency=440:duration=2",
+                    "-c:a", "aac", bgm], check=True)
+
+    out_dir = tmp_path / "out"
+    render_plan(plan, str(out_dir), bgm_path=bgm, bgm_volume=0.2)
+    all_path = os.path.join(str(out_dir), "highlight_all.mp4")
+    assert os.path.exists(all_path)
+    streams = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "stream=codec_type",
+         "-of", "csv=p=0", all_path], capture_output=True, text=True, check=True).stdout
+    assert "video" in streams and "audio" in streams
+    # duration preserved (music mixed under, clip length unchanged)
+    dur = probe_duration(all_path)
+    assert 7.0 <= dur <= 19
+
+
 def test_render_multicam_mixed_resolution(tmp_path):
     # Real-shoot hard case: cams start at genuinely different native
     # resolutions AND aspect ratios (e.g. DJI Pocket 4 vs. a smartphone).

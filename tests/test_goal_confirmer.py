@@ -35,6 +35,23 @@ def test_confirm_goals_prunes_with_stub():
     assert kept == [40.0]                      # early goal pruned, order preserved
 
 
+def test_confirm_goals_confidence_threshold():
+    # is_goal True but low confidence -> pruned when min_confidence is high
+    peaks = [10.0, 20.0]
+    frames_by_T = {10.0: ["/x/T10.0_0001.jpg"], 20.0: ["/x/T20.0_0001.jpg"]}
+
+    def low_then_high(frames):
+        import os
+        t = float(os.path.basename(frames[0])[1:].split("_")[0])
+        return {"is_goal": True, "confidence": 0.6 if t < 15 else 0.95}
+
+    cfg = Config(vision=VisionConfig(enabled=True, min_confidence=0.9))
+    assert confirm_goals(peaks, frames_by_T, cfg, low_then_high) == [20.0]
+    # threshold off (0.0) keeps both
+    cfg0 = Config(vision=VisionConfig(enabled=True, min_confidence=0.0))
+    assert confirm_goals(peaks, frames_by_T, cfg0, low_then_high) == [10.0, 20.0]
+
+
 def test_confirm_goals_keeps_when_no_frames():
     cfg = Config(vision=VisionConfig(enabled=True))
     peaks = [15.0]

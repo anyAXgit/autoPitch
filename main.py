@@ -64,7 +64,7 @@ def run(
     plan = build_plan(pre, offsets, peaks, camA, cfg)
 
     print("[5/5] rendering")
-    clips = render_plan(plan, output_dir)
+    clips = render_plan(plan, output_dir, cfg.bgm_path, cfg.bgm_volume)
     for c in clips:
         print(f"      -> {c}")
     print(f"done: {len(clips)} clip(s) + highlight_all.mp4 in {output_dir}")

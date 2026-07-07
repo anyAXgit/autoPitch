@@ -83,7 +83,21 @@ def render_clip(clip, fps, crossfade_sec, work_dir, out_path, width, height):
     return out_path
 
 
-def render_plan(plan, output_dir):
+def mix_bgm(video_path, bgm_path, volume, out_path):
+    """Mix a looped background-music track under a video's existing audio. The
+    bgm is looped to cover the whole video and ducked to `volume`; the crowd
+    audio stays at full level. Video stream is copied (no re-encode)."""
+    _ffmpeg([
+        "-i", video_path, "-stream_loop", "-1", "-i", bgm_path,
+        "-filter_complex",
+        f"[1:a]volume={volume}[bg];"
+        f"[0:a][bg]amix=inputs=2:duration=first:dropout_transition=0[a]",
+        "-map", "0:v", "-map", "[a]",
+        "-c:v", "copy", "-c:a", "aac", "-shortest", out_path,
+    ])
+
+
+def render_plan(plan, output_dir, bgm_path=None, bgm_volume=0.15):
     _ensure_filters()
     os.makedirs(output_dir, exist_ok=True)
     fps = plan["fps"]
@@ -108,9 +122,14 @@ def render_plan(plan, output_dir):
         with open(listfile, "w") as f:
             for p in clip_paths:
                 f.write(f"file '{os.path.abspath(p)}'\n")
+        all_path = os.path.join(output_dir, "highlight_all.mp4")
         _ffmpeg([
             "-f", "concat", "-safe", "0", "-i", listfile,
             "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac",
-            os.path.join(output_dir, "highlight_all.mp4"),
+            all_path,
         ])
+        if bgm_path and os.path.exists(bgm_path):
+            tmp = os.path.join(output_dir, "_with_bgm.mp4")
+            mix_bgm(all_path, bgm_path, bgm_volume, tmp)
+            os.replace(tmp, all_path)
     return clip_paths

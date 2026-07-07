@@ -47,7 +47,7 @@ def confirm_goals(peaks, frames_by_T, cfg, classifier=None):
             kept.append(T)          # no evidence to judge on -> keep
             continue
         verdict = classifier(frames)
-        if verdict.get("is_goal"):
+        if verdict.get("is_goal") and verdict.get("confidence", 1.0) >= cfg.vision.min_confidence:
             kept.append(T)
     return kept
 

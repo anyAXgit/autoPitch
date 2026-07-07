@@ -12,6 +12,7 @@ class VisionConfig:
     fps: float = 2.0          # sampling rate within that window
     frame_height: int = 360   # JPG height (width auto, aspect-preserved)
     model: str = "claude-opus-4-8"   # VLM used to judge "goal celebration?"
+    min_confidence: float = 0.0   # keep a goal only if verdict confidence >= this (0 = off)
 
 
 @dataclass
@@ -33,6 +34,8 @@ class Config:
     output_width: int = 1920
     output_height: int = 1080
     main_cam: "str | None" = None
+    bgm_path: "str | None" = None    # optional background-music file mixed under highlight_all
+    bgm_volume: float = 0.15
     vision: VisionConfig = field(default_factory=VisionConfig)
 
 
@@ -62,6 +65,8 @@ def load_config(path: str = "config.yaml") -> Config:
         output_width=raw.get("output_width", defaults.output_width),
         output_height=raw.get("output_height", defaults.output_height),
         main_cam=raw.get("main_cam", defaults.main_cam),
+        bgm_path=raw.get("bgm_path", defaults.bgm_path),
+        bgm_volume=raw.get("bgm_volume", defaults.bgm_volume),
         vision=VisionConfig(
             enabled=vision.get("enabled", vdef.enabled),
             pre_sec=vision.get("pre_sec", vdef.pre_sec),
@@ -69,5 +74,6 @@ def load_config(path: str = "config.yaml") -> Config:
             fps=vision.get("fps", vdef.fps),
             frame_height=vision.get("frame_height", vdef.frame_height),
             model=vision.get("model", vdef.model),
+            min_confidence=vision.get("min_confidence", vdef.min_confidence),
         ),
     )

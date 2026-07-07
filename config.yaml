@@ -16,6 +16,8 @@ reaction:
 crossfade_sec: 0.5
 output_width: 1920
 output_height: 1080
+# bgm_path: data/bgm.mp3   # optional background music mixed under highlight_all.mp4
+bgm_volume: 0.15           # bgm level (crowd audio stays at full volume)
 vision:                 # goal-confirmation via sparse frames (V2/V3); off by default
   enabled: false
   pre_sec: 3            # covers the shot (~1-2s before the cheer peak)
@@ -23,4 +25,5 @@ vision:                 # goal-confirmation via sparse frames (V2/V3); off by de
   fps: 2
   frame_height: 360
   model: claude-opus-4-8   # VLM for "goal celebration?" (claude-haiku-4-5 = cheaper)
+  min_confidence: 0.0      # keep a goal only if verdict confidence >= this (e.g. 0.9 = stricter)
 # main_cam: camA   # cam id to use as Cam A / goal-detection + buildup reference (default: first cam alphabetically)

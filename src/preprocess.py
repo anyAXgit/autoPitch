@@ -25,34 +25,32 @@ def cam_id(path):
 
 
 def preprocess_all(raw_dir, temp_video_dir, temp_audio_dir, fps, width=1920, height=1080):
-    os.makedirs(temp_video_dir, exist_ok=True)
+    """Extract a 16kHz mono analysis WAV per cam. Video is NOT re-encoded here
+    -- the original source is kept and normalized per-segment at render time
+    (see video_editor.render_segment), so long footage isn't fully transcoded
+    up front. `width`/`height`/`fps` are the render canvas, passed through for
+    build_plan to stamp into plan.json. `temp_video_dir` is unused (kept for
+    call-site compatibility)."""
     os.makedirs(temp_audio_dir, exist_ok=True)
     raws = list_raw(raw_dir)
     if not raws:
-        raise FileNotFoundError(f"No .mp4 files in {raw_dir}")
-    cams, video, audio = [], {}, {}
+        raise FileNotFoundError(f"No video files in {raw_dir}")
+    cams, source, audio = [], {}, {}
     for path in raws:
         cid = cam_id(path)
         cams.append(cid)
-        vout = os.path.join(temp_video_dir, f"{cid}.mp4")
         aout = os.path.join(temp_audio_dir, f"{cid}.wav")
-        vf = (
-            f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
-            f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1"
-        )
-        _ffmpeg([
-            "-i", path, "-vf", vf, "-vsync", "cfr", "-r", str(fps),
-            "-c:v", "libx264", "-pix_fmt", "yuv420p",
-            "-c:a", "aac", vout,
-        ])
         _ffmpeg([
             "-i", path, "-vn", "-ac", "1", "-ar", "16000", aout,
         ])
-        video[cid] = vout
+        source[cid] = path
         audio[cid] = aout
     return {
         "cams": cams,
-        "video": video,
+        "source": source,
         "audio": audio,
         "is_multicam": len(cams) > 1,
+        "width": width,
+        "height": height,
+        "fps": fps,
     }

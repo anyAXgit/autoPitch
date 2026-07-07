@@ -37,22 +37,31 @@ def probe_duration(path):
     return float(out.stdout.strip())
 
 
-def render_segment(seg, fps, out_path):
-    # accurate seek: -ss/-to after -i, re-encode to CFR
+def render_segment(seg, fps, out_path, width, height):
+    # Input-side seek (`-ss` before `-i`) so cutting a short window out of a
+    # long ORIGINAL source is a keyframe jump, not a full decode-from-zero
+    # (modern ffmpeg still lands on the exact frame). Normalize to the render
+    # canvas here (scale+pad) -- preprocess no longer transcodes video, so
+    # this is where mixed cam resolutions become a common size for xfade.
+    dur = seg["src_out"] - seg["src_in"]
+    vf = (
+        f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
+        f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1"
+    )
     _ffmpeg([
-        "-i", seg["src"], "-ss", str(seg["src_in"]), "-to", str(seg["src_out"]),
-        "-vsync", "cfr", "-r", str(fps),
+        "-ss", str(seg["src_in"]), "-i", seg["src"], "-t", str(dur),
+        "-vf", vf, "-vsync", "cfr", "-r", str(fps),
         "-c:v", "libx264", "-pix_fmt", "yuv420p",
         "-c:a", "aac", "-ar", "48000", out_path,
     ])
 
 
-def render_clip(clip, fps, crossfade_sec, work_dir, out_path):
+def render_clip(clip, fps, crossfade_sec, work_dir, out_path, width, height):
     os.makedirs(work_dir, exist_ok=True)
     seg_paths = []
     for i, seg in enumerate(clip["segments"]):
         sp = os.path.join(work_dir, f"seg_{i}.mp4")
-        render_segment(seg, fps, sp)
+        render_segment(seg, fps, sp, width, height)
         seg_paths.append(sp)
 
     if len(seg_paths) == 1:
@@ -79,12 +88,14 @@ def render_plan(plan, output_dir):
     os.makedirs(output_dir, exist_ok=True)
     fps = plan["fps"]
     xfade = plan["crossfade_sec"]
+    width = plan.get("output_width", 1920)
+    height = plan.get("output_height", 1080)
     clip_paths = []
     for clip in plan["clips"]:
         name = f"highlight_{clip['T']:.1f}.mp4"
         out_path = os.path.join(output_dir, name)
         work = os.path.join(output_dir, f".work_{clip['T']:.1f}")
-        render_clip(clip, fps, xfade, work, out_path)
+        render_clip(clip, fps, xfade, work, out_path, width, height)
         clip_paths.append(out_path)
 
     # write plan.json alongside outputs (editor contract / future UI)

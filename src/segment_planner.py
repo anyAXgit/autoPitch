@@ -79,17 +79,19 @@ def build_plan(pre, offsets, peaks, camA, cfg):
                 end = min(max(end, T + cfg.post_goal_sec + cfg.min_reaction_sec), hi)
                 cut = max(T, min(T + cfg.post_goal_sec, end - cfg.min_reaction_sec))
                 segments = [
-                    {"cam": camA, "src": pre["video"][camA],
+                    {"cam": camA, "src": pre["source"][camA],
                      "src_in": start, "src_out": cut},
-                    {"cam": react_cam, "src": pre["video"][react_cam],
+                    {"cam": react_cam, "src": pre["source"][react_cam],
                      "src_in": max(0.0, cut + offsets[react_cam]),
                      "src_out": end + offsets[react_cam]},
                 ]
             else:
-                segments = [{"cam": camA, "src": pre["video"][camA],
+                segments = [{"cam": camA, "src": pre["source"][camA],
                              "src_in": start, "src_out": end}]
         else:
-            segments = [{"cam": camA, "src": pre["video"][camA],
+            segments = [{"cam": camA, "src": pre["source"][camA],
                          "src_in": start, "src_out": end}]
         clips.append({"T": float(T), "segments": segments})
-    return {"fps": cfg.fps, "crossfade_sec": cfg.crossfade_sec, "clips": clips}
+    return {"fps": cfg.fps, "crossfade_sec": cfg.crossfade_sec,
+            "output_width": pre["width"], "output_height": pre["height"],
+            "clips": clips}

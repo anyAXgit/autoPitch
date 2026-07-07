@@ -1,28 +1,8 @@
 import os
-import subprocess
 import pytest
 import soundfile as sf
 from tests.make_dummy import make_dummy_set
 from src.preprocess import list_raw, cam_id, preprocess_all
-
-
-def _frame_rates(path):
-    out = subprocess.run(
-        ["ffprobe", "-v", "error", "-select_streams", "v:0",
-         "-show_entries", "stream=r_frame_rate,avg_frame_rate",
-         "-of", "default=noprint_wrappers=1:nokey=1", path],
-        capture_output=True, text=True, check=True).stdout.split()
-    return out  # [r_frame_rate, avg_frame_rate], e.g. ["30/1", "30/1"]
-
-
-def _dims(path):
-    out = subprocess.run(
-        ["ffprobe", "-v", "error", "-select_streams", "v:0",
-         "-show_entries", "stream=width,height",
-         "-of", "default=noprint_wrappers=1:nokey=1", path],
-        capture_output=True, text=True, check=True).stdout.split()
-    w, h = int(out[0]), int(out[1])
-    return w, h
 
 
 def test_cam_ordering_and_multicam_flag(tmp_path):
@@ -44,11 +24,33 @@ def test_preprocess_outputs(tmp_path):
     res = preprocess_all(str(raw), str(tv), str(ta), fps=30)
     assert res["cams"] == ["camA"]
     assert res["is_multicam"] is False
-    assert os.path.exists(res["video"]["camA"])
+    # source keeps the ORIGINAL raw path (no video re-encode in preprocess)
+    assert os.path.exists(res["source"]["camA"])
+    assert cam_id(res["source"]["camA"]) == "camA"
     wav = res["audio"]["camA"]
     data, sr = sf.read(wav)
     assert sr == 16000
     assert data.ndim == 1        # mono
+
+
+def test_preprocess_extracts_audio_no_video(tmp_path):
+    # V1: preprocess extracts only the analysis WAV + a source map pointing at
+    # the originals. It must NOT write any normalized video to temp_video
+    # (normalization moved to render_segment).
+    import glob
+    raw = tmp_path / "raw"
+    make_dummy_set(str(raw), [
+        {"name": "camA", "color": "red", "offset": 0.0, "bursts": [(10, 12, 10)]},
+    ], duration=20.0)
+    tv, ta = tmp_path / "tv", tmp_path / "ta"
+    res = preprocess_all(str(raw), str(tv), str(ta), fps=30)
+    assert os.path.exists(res["audio"]["camA"])
+    data, sr = sf.read(res["audio"]["camA"])
+    assert sr == 16000 and data.ndim == 1
+    assert os.path.exists(res["source"]["camA"])
+    assert res["width"] == 1920 and res["height"] == 1080 and res["fps"] == 30
+    # no transcoded video written to temp_video
+    assert glob.glob(str(tv / "*")) == []
 
 
 def test_empty_raw_dir_raises(tmp_path):
@@ -57,23 +59,6 @@ def test_empty_raw_dir_raises(tmp_path):
     tv, ta = tmp_path / "tv", tmp_path / "ta"
     with pytest.raises(FileNotFoundError):
         preprocess_all(str(raw), str(tv), str(ta), fps=30)
-
-
-def test_cfr_output_frame_rate(tmp_path):
-    raw = tmp_path / "raw"
-    make_dummy_set(str(raw), [
-        {"name": "camA", "color": "red", "offset": 0.0, "bursts": [(2, 4, 10)]},
-    ], duration=8.0)
-    tv, ta = tmp_path / "tv", tmp_path / "ta"
-    res = preprocess_all(str(raw), str(tv), str(ta), fps=30)
-    r_rate, avg_rate = _frame_rates(res["video"]["camA"])
-
-    def _to_float(fraction):
-        num, den = fraction.split("/")
-        return float(num) / float(den)
-
-    assert _to_float(r_rate) == 30.0
-    assert _to_float(avg_rate) == 30.0
 
 
 def test_multicam_flag_true(tmp_path):
@@ -88,15 +73,6 @@ def test_multicam_flag_true(tmp_path):
     assert res["cams"] == ["camA", "camB"]
 
 
-def test_normalizes_mixed_resolutions(tmp_path):
-    raw = tmp_path / "raw"
-    make_dummy_set(str(raw), [
-        {"name": "camA", "color": "red", "offset": 0.0, "bursts": [(2, 4, 10)],
-         "size": "320x240"},
-        {"name": "camB", "color": "green", "offset": 0.5, "bursts": [(2.5, 4.5, 10)],
-         "size": "640x360"},
-    ], duration=8.0)
-    tv, ta = tmp_path / "tv", tmp_path / "ta"
-    res = preprocess_all(str(raw), str(tv), str(ta), fps=30, width=256, height=144)
-    assert _dims(res["video"]["camA"]) == (256, 144)
-    assert _dims(res["video"]["camB"]) == (256, 144)
+# Cross-resolution normalization is now a RENDER-time property (render_segment
+# scale+pad), covered by tests/test_video_editor.py::test_render_multicam_mixed_resolution.
+# CFR output frame rate likewise: render_segment emits -vsync cfr -r fps.

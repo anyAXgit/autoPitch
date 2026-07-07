@@ -83,7 +83,9 @@ def test_render_multicam_clip(tmp_path):
         {"name": "camA", "color": "red", "offset": 0.0, "bursts": [(30, 32, 10)]},
         {"name": "camB", "color": "green", "offset": 0.0, "bursts": [(30, 34, 18)]},
     ], duration=55.0)
-    res = preprocess_all(str(raw), str(tmp_path / "tv"), str(tmp_path / "ta"), fps=30)
+    # small render canvas keeps the dummy render fast (normalization is now at render)
+    res = preprocess_all(str(raw), str(tmp_path / "tv"), str(tmp_path / "ta"),
+                         fps=30, width=320, height=180)
     cfg = _cfg(tmp_path)
     offsets = compute_offsets(res["audio"], "camA")
     peaks = detect_peaks(res["audio"]["camA"], cfg)
@@ -176,7 +178,8 @@ def test_reaction_marker_lands_within_tolerance(tmp_path):
          # reaction window and is trivially locatable via rms_db.
          "bursts": [(30, 44, 16), (Tb, Tb + 0.6, 30)]},
     ], duration=55.0)
-    res = preprocess_all(str(raw), str(tmp_path / "tv"), str(tmp_path / "ta"), fps=30)
+    res = preprocess_all(str(raw), str(tmp_path / "tv"), str(tmp_path / "ta"),
+                         fps=30, width=320, height=180)
     # Large min_gap so the long single celebration collapses to ONE peak
     # (the 14s plateau would otherwise split into ~3 clusters at min_gap=5).
     import yaml

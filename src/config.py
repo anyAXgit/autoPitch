@@ -1,5 +1,16 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import yaml
+
+
+@dataclass
+class VisionConfig:
+    """Sparse-frame goal-confirmation settings (V2/V3). Disabled by default so
+    the audio-only pipeline is unchanged unless a `vision:` block opts in."""
+    enabled: bool = False
+    pre_sec: float = 3.0      # frames from T-pre_sec ...
+    post_sec: float = 8.0     # ... to T+post_sec
+    fps: float = 2.0          # sampling rate within that window
+    frame_height: int = 360   # JPG height (width auto, aspect-preserved)
 
 
 @dataclass
@@ -21,6 +32,7 @@ class Config:
     output_width: int = 1920
     output_height: int = 1080
     main_cam: "str | None" = None
+    vision: VisionConfig = field(default_factory=VisionConfig)
 
 
 def load_config(path: str = "config.yaml") -> Config:
@@ -28,7 +40,9 @@ def load_config(path: str = "config.yaml") -> Config:
         raw = yaml.safe_load(f) or {}
     peak = raw.get("peak", {}) or {}
     reaction = raw.get("reaction", {}) or {}
+    vision = raw.get("vision", {}) or {}
     defaults = Config()
+    vdef = defaults.vision
     return Config(
         fps=raw.get("fps", defaults.fps),
         build_up_sec=raw.get("build_up_sec", defaults.build_up_sec),
@@ -47,4 +61,11 @@ def load_config(path: str = "config.yaml") -> Config:
         output_width=raw.get("output_width", defaults.output_width),
         output_height=raw.get("output_height", defaults.output_height),
         main_cam=raw.get("main_cam", defaults.main_cam),
+        vision=VisionConfig(
+            enabled=vision.get("enabled", vdef.enabled),
+            pre_sec=vision.get("pre_sec", vdef.pre_sec),
+            post_sec=vision.get("post_sec", vdef.post_sec),
+            fps=vision.get("fps", vdef.fps),
+            frame_height=vision.get("frame_height", vdef.frame_height),
+        ),
     )

@@ -1,12 +1,17 @@
+import os
+
 from src.config import load_config
 from src.preprocess import preprocess_all
 from src.sync_engine import compute_offsets
 from src.peak_detector import detect_peaks
 from src.segment_planner import build_plan
 from src.video_editor import render_plan
+from src.frame_extractor import extract_goal_frames
+from src.goal_confirmer import confirm_goals, make_vlm_classifier
 
 TEMP_VIDEO = "data/temp_video"
 TEMP_AUDIO = "data/temp_audio"
+TEMP_FRAMES = "data/temp_frames"
 OUTPUT_DIR = "data/output"
 
 
@@ -16,6 +21,8 @@ def run(
     temp_video=TEMP_VIDEO,
     temp_audio=TEMP_AUDIO,
     output_dir=OUTPUT_DIR,
+    temp_frames=TEMP_FRAMES,
+    vision_classifier=None,
 ):
     cfg = load_config(config_path)
     print(f"[1/5] preprocess: {raw_dir}")
@@ -39,7 +46,19 @@ def run(
 
     print("[3/5] peak detection")
     peaks = detect_peaks(pre["audio"][camA], cfg)
-    print(f"      {len(peaks)} goal(s): {[round(p,1) for p in peaks]}")
+    print(f"      {len(peaks)} candidate(s): {[round(p,1) for p in peaks]}")
+
+    if cfg.vision.enabled and peaks:
+        frames_by_T = {}
+        for T in peaks:
+            frames_by_T[T] = extract_goal_frames(
+                pre["source"][camA], T, cfg,
+                os.path.join(temp_frames, f"T{T:.1f}"),
+            )
+        classifier = vision_classifier or make_vlm_classifier(cfg)
+        kept = confirm_goals(peaks, frames_by_T, cfg, classifier)
+        print(f"      vision: kept {len(kept)}/{len(peaks)} goals")
+        peaks = kept
 
     print("[4/5] planning")
     plan = build_plan(pre, offsets, peaks, camA, cfg)

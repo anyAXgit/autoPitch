@@ -3,6 +3,37 @@ from tests.make_dummy import make_dummy_set
 from main import run
 
 
+def _stub_drop_early(frames):
+    # injected VLM stub: judge from the T encoded in the frame filename, so the
+    # e2e never calls the real API. Keeps goals at T>=30, drops earlier ones.
+    name = os.path.basename(frames[0])
+    t = float(name[1:name.index("_")])
+    return {"is_goal": t >= 30, "confidence": 0.9}
+
+
+def test_e2e_vision_stub_prunes(tmp_path, monkeypatch):
+    raw = tmp_path / "raw"
+    make_dummy_set(str(raw), [
+        {"name": "camA", "color": "red", "offset": 0.0,
+         "bursts": [(20, 22, 10), (40, 42, 10)]},
+    ], duration=60.0)
+    monkeypatch.chdir(tmp_path)
+    import yaml
+    (tmp_path / "config.yaml").write_text(yaml.safe_dump({
+        "build_up_sec": 5, "min_len_sec": 8, "max_len_sec": 18,
+        "crossfade_sec": 0.5, "output_width": 320, "output_height": 180,
+        "peak": {"min_gap_sec": 10, "threshold_k": 2.0},
+        "vision": {"enabled": True, "pre_sec": 2, "post_sec": 3,
+                   "fps": 2, "frame_height": 120},
+    }))
+    result = run(raw_dir=str(raw), config_path=str(tmp_path / "config.yaml"),
+                 vision_classifier=_stub_drop_early)
+    # audio proposed 2 goals (~20, ~40); vision stub pruned the early one
+    assert len(result["peaks"]) == 1
+    assert result["peaks"][0] >= 30
+    assert len(result["clips"]) == 1
+
+
 def test_e2e_multicam(tmp_path, monkeypatch):
     raw = tmp_path / "raw"
     make_dummy_set(str(raw), [

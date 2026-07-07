@@ -11,6 +11,7 @@ class VisionConfig:
     post_sec: float = 8.0     # ... to T+post_sec
     fps: float = 2.0          # sampling rate within that window
     frame_height: int = 360   # JPG height (width auto, aspect-preserved)
+    model: str = "claude-opus-4-8"   # VLM used to judge "goal celebration?"
 
 
 @dataclass
@@ -67,5 +68,6 @@ def load_config(path: str = "config.yaml") -> Config:
             post_sec=vision.get("post_sec", vdef.post_sec),
             fps=vision.get("fps", vdef.fps),
             frame_height=vision.get("frame_height", vdef.frame_height),
+            model=vision.get("model", vdef.model),
         ),
     )

@@ -7,8 +7,8 @@ class VisionConfig:
     """Sparse-frame goal-confirmation settings (V2/V3). Disabled by default so
     the audio-only pipeline is unchanged unless a `vision:` block opts in."""
     enabled: bool = False
-    pre_sec: float = 3.0      # frames from T-pre_sec ...
-    post_sec: float = 8.0     # ... to T+post_sec
+    pre_sec: float = 3.0      # frames from T-pre_sec (covers the shot, ~1-2s before the cheer peak)
+    post_sec: float = 5.0     # ... to T+post_sec (covers ball-in + walk-back to restart)
     fps: float = 2.0          # sampling rate within that window
     frame_height: int = 360   # JPG height (width auto, aspect-preserved)
     model: str = "claude-opus-4-8"   # VLM used to judge "goal celebration?"

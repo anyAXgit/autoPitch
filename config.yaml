@@ -18,8 +18,8 @@ output_width: 1920
 output_height: 1080
 vision:                 # goal-confirmation via sparse frames (V2/V3); off by default
   enabled: false
-  pre_sec: 3
-  post_sec: 8
+  pre_sec: 3            # covers the shot (~1-2s before the cheer peak)
+  post_sec: 5          # covers ball-in + walk-back to center (restart = goal cue)
   fps: 2
   frame_height: 360
   model: claude-opus-4-8   # VLM for "goal celebration?" (claude-haiku-4-5 = cheaper)

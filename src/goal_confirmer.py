@@ -15,11 +15,18 @@ import json
 import os
 
 _PROMPT = (
-    "These frames are consecutive moments from one camera at an indoor futsal "
-    "match, spanning a few seconds around a loud crowd cheer. Did a GOAL just "
-    "happen? Look for goal-celebration cues: players running to celebrate, arms "
-    "raised, a cluster forming, the ball in or near the net. A loud moment with "
-    "normal open play (no celebration) is NOT a goal.\n"
+    "These are consecutive frames (a few seconds) from one fixed low corner "
+    "camera at an indoor 5-a-side futsal match, around a moment the crowd got "
+    "loud. Decide whether a GOAL was most likely just scored. Celebrations are "
+    "usually MINIMAL in casual play, so do NOT require an obvious celebration. "
+    "Treat ANY of these as goal-likely:\n"
+    "- the ball going into / hitting a goal net, or a clear shot on a goal\n"
+    "- players converging near a goal, or a keeper retrieving the ball from the net\n"
+    "- players jogging or walking back toward the center circle to restart "
+    "(a kickoff right after a goal is the most reliable cue here)\n"
+    "- any celebration: arms raised, a small cluster, pointing, high-fives\n"
+    "It is NOT a goal only if the frames show ordinary open play in midfield "
+    "with no shot, no ball near a net, and no restart.\n"
     'Reply with ONLY a JSON object: {"is_goal": true|false, "confidence": 0.0-1.0}.'
 )
 
@@ -50,7 +57,17 @@ def _encode(frame_path):
         return base64.standard_b64encode(f.read()).decode("utf-8")
 
 
-def make_vlm_classifier(cfg, client=None, max_frames=8):
+def _subsample(frames, n):
+    """Evenly-spaced subsample of `frames` down to at most `n`, covering the whole
+    window (not just the front)."""
+    if len(frames) <= n:
+        return list(frames)
+    if n <= 1:
+        return [frames[0]]
+    return [frames[round(i * (len(frames) - 1) / (n - 1))] for i in range(n)]
+
+
+def make_vlm_classifier(cfg, client=None, max_frames=10):
     """Build a classifier(frames)->{"is_goal": bool, "confidence": float} backed by
     a Claude VLM. `client` is injectable; by default an anthropic.Anthropic() is
     created lazily (needs credentials). Frames are subsampled to `max_frames` to
@@ -62,9 +79,7 @@ def make_vlm_classifier(cfg, client=None, max_frames=8):
     def classify(frames):
         if not frames:
             return {"is_goal": True, "confidence": 0.0}
-        # even subsample down to max_frames, keeping temporal order
-        step = max(1, len(frames) // max_frames)
-        picked = frames[::step][:max_frames]
+        picked = _subsample(frames, max_frames)   # even coverage of the window
         content = [
             {"type": "image",
              "source": {"type": "base64", "media_type": "image/jpeg",

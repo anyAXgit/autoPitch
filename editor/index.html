@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MAHP 하이라이트 편집기</title>
+<style>
+  :root { --bg:#12151a; --panel:#1b2027; --line:#2b323c; --fg:#e6e9ee; --mut:#8b95a3;
+          --accent:#4ea1ff; --drop:#ff6b6b; --ok:#37d67a; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+         font:14px/1.5 -apple-system,Segoe UI,Roboto,sans-serif; }
+  header { position:sticky; top:0; z-index:5; background:var(--panel);
+           border-bottom:1px solid var(--line); padding:12px 16px;
+           display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+  h1 { font-size:16px; margin:0 12px 0 0; }
+  .btn { background:#232a33; color:var(--fg); border:1px solid var(--line);
+         border-radius:7px; padding:7px 12px; cursor:pointer; font-size:13px; }
+  .btn:hover { border-color:var(--accent); }
+  .btn.primary { background:var(--accent); color:#04101f; border-color:var(--accent); font-weight:600; }
+  .btn:disabled { opacity:.4; cursor:default; }
+  .mut { color:var(--mut); }
+  #stats { margin-left:auto; }
+  main { max-width:1000px; margin:0 auto; padding:16px; }
+  .clip { background:var(--panel); border:1px solid var(--line); border-radius:10px;
+          margin:10px 0; padding:12px 14px; display:grid;
+          grid-template-columns:auto 1fr auto; gap:12px; align-items:start; }
+  .clip.excluded { opacity:.42; }
+  .clip .idx { font-size:12px; color:var(--mut); width:26px; text-align:center; padding-top:3px; }
+  .clip h3 { margin:0 0 6px; font-size:15px; }
+  .clip h3 .t { color:var(--accent); font-variant-numeric:tabular-nums; }
+  .seg { display:flex; gap:8px; align-items:center; margin:4px 0; font-size:12px; flex-wrap:wrap; }
+  .seg .cam { min-width:70px; color:var(--mut); }
+  .seg input { width:88px; background:#0e1116; color:var(--fg); border:1px solid var(--line);
+               border-radius:5px; padding:4px 6px; font-variant-numeric:tabular-nums; }
+  .seg .len { color:var(--mut); font-variant-numeric:tabular-nums; }
+  .ctrl { display:flex; flex-direction:column; gap:6px; align-items:flex-end; }
+  .ctrl label { font-size:12px; display:flex; gap:6px; align-items:center; cursor:pointer; }
+  .ord button { width:28px; }
+  video { width:220px; border-radius:6px; background:#000; display:block; margin-top:6px; }
+  .empty { color:var(--mut); text-align:center; padding:60px 20px; }
+  code { background:#0e1116; padding:2px 6px; border-radius:4px; border:1px solid var(--line); }
+  #cmd { margin-top:18px; padding:12px 14px; background:var(--panel); border:1px solid var(--line);
+         border-radius:10px; font-size:13px; word-break:break-all; }
+</style>
+</head>
+<body>
+<header>
+  <h1>⚽ MAHP 편집기</h1>
+  <label class="btn">plan.json 열기<input id="planInput" type="file" accept=".json,application/json" hidden></label>
+  <label class="btn">출력 폴더(미리보기)<input id="dirInput" type="file" webkitdirectory hidden></label>
+  <button id="exportBtn" class="btn primary" disabled>편집본 내보내기</button>
+  <span id="stats" class="mut">plan.json을 열어 시작하세요</span>
+</header>
+<main>
+  <div id="list"></div>
+  <div id="empty" class="empty">
+    파이프라인이 만든 <code>plan.json</code>을 열면 클립 목록이 나타납니다.<br>
+    포함/제외 체크, 컷 지점(초) 수정, 순서 변경 후 <b>편집본 내보내기</b> → 아래 명령으로 재렌더.
+  </div>
+  <div id="cmd" hidden></div>
+</main>
+<script>
+let plan = null;          // loaded plan object
+let clips = [];           // [{data, include, videoUrl}]
+const previews = {};      // "273.5" -> object URL
+
+const $ = s => document.querySelector(s);
+const mmss = s => `${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`;
+const round = n => Math.round(n*100)/100;
+
+function clipLen(c) {                 // sum of segment lengths minus xfade per boundary
+  const xf = plan.crossfade_sec || 0;
+  const s = c.segments.reduce((a,g)=>a+(g.src_out-g.src_in),0);
+  return Math.max(0, s - xf*(c.segments.length-1));
+}
+
+function render() {
+  const list = $('#list'); list.innerHTML='';
+  $('#empty').hidden = clips.length>0;
+  clips.forEach((c,i)=>{
+    const d=c.data, el=document.createElement('div');
+    el.className='clip'+(c.include?'':' excluded');
+    const segHtml=d.segments.map((g,si)=>`
+      <div class="seg" data-si="${si}">
+        <span class="cam">${g.cam.includes('IMG')||g.cam.toLowerCase().includes('phone')?'코너캠':'CamA'}</span>
+        in <input type="number" step="0.1" value="${round(g.src_in)}" data-f="src_in">
+        out <input type="number" step="0.1" value="${round(g.src_out)}" data-f="src_out">
+        <span class="len">= ${round(g.src_out-g.src_in)}s</span>
+      </div>`).join('');
+    const vid = c.videoUrl?`<video src="${c.videoUrl}" controls preload="metadata"></video>`:'';
+    el.innerHTML=`
+      <div class="idx">${i+1}</div>
+      <div>
+        <h3>골 <span class="t">${mmss(d.T)}</span> <span class="mut">(T=${round(d.T)}s · ${d.segments.length}컷 · ~${round(clipLen(c))}s)</span></h3>
+        ${segHtml}${vid}
+      </div>
+      <div class="ctrl">
+        <label><input type="checkbox" ${c.include?'checked':''} data-inc>포함</label>
+        <div class="ord">
+          <button class="btn" data-up ${i===0?'disabled':''}>▲</button>
+          <button class="btn" data-down ${i===clips.length-1?'disabled':''}>▼</button>
+        </div>
+      </div>`;
+    el.querySelector('[data-inc]').onchange=e=>{c.include=e.target.checked; render(); updateStats();};
+    el.querySelector('[data-up]').onclick=()=>{ if(i>0){[clips[i-1],clips[i]]=[clips[i],clips[i-1]]; render();}};
+    el.querySelector('[data-down]').onclick=()=>{ if(i<clips.length-1){[clips[i+1],clips[i]]=[clips[i],clips[i+1]]; render();}};
+    el.querySelectorAll('.seg input').forEach(inp=>{
+      inp.onchange=e=>{
+        const si=+e.target.closest('.seg').dataset.si, f=e.target.dataset.f;
+        d.segments[si][f]=parseFloat(e.target.value)||0; render(); updateStats();
+      };
+    });
+    list.appendChild(el);
+  });
+  $('#exportBtn').disabled = clips.length===0;
+}
+
+function updateStats(){
+  const inc=clips.filter(c=>c.include);
+  const total=inc.reduce((a,c)=>a+clipLen(c),0);
+  $('#stats').textContent = `포함 ${inc.length}/${clips.length}클립 · 예상 합본 ~${mmss(total)}`;
+}
+
+$('#planInput').onchange = async e=>{
+  const f=e.target.files[0]; if(!f) return;
+  plan=JSON.parse(await f.text());
+  clips=(plan.clips||[]).map(d=>({data:d, include:true, videoUrl:previews[round(d.T).toFixed(1)]||null}));
+  render(); updateStats();
+  $('#cmd').hidden=false;
+  $('#cmd').innerHTML='재렌더: <code>./.venv/bin/python render_from_plan.py plan.edited.json data/output/edited</code>'
+    +' &nbsp;(음악: <code>--bgm data/bgm.mp3</code>)';
+};
+
+$('#dirInput').onchange = e=>{
+  for(const f of e.target.files){
+    const m=f.name.match(/highlight_([\d.]+)\.mp4$/);
+    if(m) previews[m[1]]=URL.createObjectURL(f);
+  }
+  clips.forEach(c=>c.videoUrl=previews[round(c.data.T).toFixed(1)]||c.videoUrl);
+  render();
+};
+
+$('#exportBtn').onclick=()=>{
+  const out={...plan, clips: clips.filter(c=>c.include).map(c=>c.data)};
+  const blob=new Blob([JSON.stringify(out,null,2)],{type:'application/json'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob); a.download='plan.edited.json'; a.click();
+};
+</script>
+</body>
+</html>

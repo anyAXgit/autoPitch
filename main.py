@@ -10,11 +10,17 @@ TEMP_AUDIO = "data/temp_audio"
 OUTPUT_DIR = "data/output"
 
 
-def run(raw_dir="data/raw", config_path="config.yaml"):
+def run(
+    raw_dir="data/raw",
+    config_path="config.yaml",
+    temp_video=TEMP_VIDEO,
+    temp_audio=TEMP_AUDIO,
+    output_dir=OUTPUT_DIR,
+):
     cfg = load_config(config_path)
     print(f"[1/5] preprocess: {raw_dir}")
     pre = preprocess_all(
-        raw_dir, TEMP_VIDEO, TEMP_AUDIO, cfg.fps,
+        raw_dir, temp_video, temp_audio, cfg.fps,
         cfg.output_width, cfg.output_height,
     )
     if cfg.main_cam and cfg.main_cam not in pre["cams"]:
@@ -39,10 +45,10 @@ def run(raw_dir="data/raw", config_path="config.yaml"):
     plan = build_plan(pre, offsets, peaks, camA, cfg)
 
     print("[5/5] rendering")
-    clips = render_plan(plan, OUTPUT_DIR)
+    clips = render_plan(plan, output_dir)
     for c in clips:
         print(f"      -> {c}")
-    print(f"done: {len(clips)} clip(s) + highlight_all.mp4 in {OUTPUT_DIR}")
+    print(f"done: {len(clips)} clip(s) + highlight_all.mp4 in {output_dir}")
     return {"peaks": peaks, "clips": clips, "plan": plan}
 
 

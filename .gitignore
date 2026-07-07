@@ -2,6 +2,7 @@ data/raw/*
 data/temp_video/*
 data/temp_audio/*
 data/output/*
+data/_stage/
 !data/**/.gitkeep
 __pycache__/
 *.pyc

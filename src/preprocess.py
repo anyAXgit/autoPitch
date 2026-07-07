@@ -1,6 +1,8 @@
 import os
-import glob
 import subprocess
+
+# Recognized raw video containers (matched case-insensitively).
+_VIDEO_EXTS = (".mp4", ".mov", ".m4v")
 
 
 def _ffmpeg(args):
@@ -11,7 +13,11 @@ def _ffmpeg(args):
 
 
 def list_raw(raw_dir):
-    return sorted(glob.glob(os.path.join(raw_dir, "*.mp4")))
+    return sorted(
+        os.path.join(raw_dir, f)
+        for f in os.listdir(raw_dir)
+        if os.path.splitext(f)[1].lower() in _VIDEO_EXTS
+    )
 
 
 def cam_id(path):

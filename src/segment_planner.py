@@ -33,6 +33,34 @@ def reaction_end(times, db, T, cfg):
     return float(min(max(end, lo), hi))
 
 
+def cheer_onset(times, db, peak, cfg):
+    """Anchor the clip at the RISING EDGE of the cheer, not its loudness peak.
+
+    The crowd peaks a variable ~1-3s AFTER the ball crosses the line, so anchoring
+    the clip on the loudness peak can push the actual goal off the front of the
+    clip ("celebration with no goal"). Walk backward from the peak to the frame
+    where dB first rose above the pre-cheer ambient (`baseline + margin_db`) — that
+    onset sits right on the goal moment. `peak` is still used elsewhere for angle
+    loudness; this only moves the *timing* anchor earlier.
+    """
+    p = int(np.argmin(np.abs(times - peak)))
+    look = cfg.build_up_sec + 2.0
+    pre = db[(times >= max(0.0, peak - look)) & (times < peak)]
+    # low percentile, not median: the cheer often fills part of this window, so a
+    # median would ride up with it. p20 recovers the pre-cheer ambient floor.
+    baseline = float(np.percentile(pre, 20)) if pre.size else float(np.median(db))
+    # Anchor at the FOOT of the rise (baseline + 2dB), not where it hits the
+    # +margin cheer level -- by +margin the cheer is already well up and the goal
+    # is a beat behind. Walking back from a real loudness peak stays inside the
+    # contiguous cheer, so a small foot threshold doesn't catch stray murmurs.
+    level = baseline + 2.0
+    i = p
+    while i > 0 and db[i] > level:
+        i -= 1
+    onset = float(times[min(i + 1, p)])
+    return min(onset, float(peak))
+
+
 def _mean_db(times, db, a, b):
     mask = (times >= a) & (times < b)
     return float(np.mean(db[mask])) if mask.any() else -np.inf
@@ -63,7 +91,10 @@ def build_plan(pre, offsets, peaks, camA, cfg):
                 continue
             rms_cache[cam] = rms_db(pre["audio"][cam], cfg.rms_window_sec)
     clips = []
-    for T in peaks:
+    for peak in peaks:
+        # Anchor timing on the cheer ONSET (goal moment), not the loudness peak,
+        # so the buildup reliably contains the shot instead of starting mid-celebration.
+        T = cheer_onset(times, db, peak, cfg)
         start = max(0.0, T - cfg.build_up_sec)
         hi = start + cfg.max_len_sec
         end = min(reaction_end(times, db, T, cfg) + cfg.tail_sec, hi)
@@ -91,7 +122,8 @@ def build_plan(pre, offsets, peaks, camA, cfg):
         else:
             segments = [{"cam": camA, "src": pre["source"][camA],
                          "src_in": start, "src_out": end}]
-        clips.append({"T": float(T), "segments": segments})
+        # T = goal-onset anchor (clip start / label); peak = loudness peak (kept for reference)
+        clips.append({"T": float(T), "peak": float(peak), "segments": segments})
     return {"fps": cfg.fps, "crossfade_sec": cfg.crossfade_sec,
             "output_width": pre["width"], "output_height": pre["height"],
             "clips": clips}

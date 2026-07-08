@@ -3,7 +3,7 @@ import numpy as np
 from tests.make_dummy import make_dummy_set
 from src.preprocess import preprocess_all
 from src.config import Config, load_config
-from src.segment_planner import build_plan, reaction_end
+from src.segment_planner import build_plan, reaction_end, cheer_onset
 from src.peak_detector import detect_peaks
 from src.sync_engine import compute_offsets
 
@@ -140,6 +140,32 @@ def test_post_goal_clamped_to_end(tmp_path):
 def _reaction_cfg():
     return Config(build_up_sec=5, min_len_sec=8, max_len_sec=25,
                   margin_db=6, hold_sec=2, rms_window_sec=0.5)
+
+
+def test_cheer_onset_precedes_peak():
+    # Quiet ambient (-40dB), then the cheer RISES at t=20 (onset) and only reaches
+    # its loudness PEAK at t~25. The clip anchor must land on the onset (~goal
+    # moment), well before the loudness peak, so the shot isn't cut off the front.
+    cfg = _reaction_cfg()                        # build_up 5, margin_db 6
+    times = np.arange(80) * 0.5                  # 0 .. 39.5
+    db = np.full(times.shape, -40.0)
+    db[(times >= 20) & (times < 28)] = -12.0     # cheer: loud from the onset at t=20
+    db[(times >= 24) & (times < 26)] = -8.0      # loudness peak a few seconds later
+    onset = cheer_onset(times, db, 24.5, cfg)    # peak sits at ~24.5
+    assert 19.5 <= onset <= 20.5                  # anchored on the rising edge (goal moment)
+    assert onset < 24.5 - 2                        # comfortably before the loudness peak
+
+
+def test_build_plan_anchors_on_onset(tmp_path):
+    # End-to-end: the clip's start is build_up before the ONSET, and the plan
+    # records both the onset (T) and the loudness peak.
+    res, offsets = _multicam_res(tmp_path)
+    cfg = _cfg(tmp_path)
+    peaks = detect_peaks(res["audio"]["camA"], cfg)
+    plan = build_plan(res, offsets, peaks, "camA", cfg)
+    clip = plan["clips"][0]
+    assert "peak" in clip and clip["T"] <= clip["peak"]      # onset at or before peak
+    assert abs(clip["segments"][0]["src_in"] - max(0.0, clip["T"] - cfg.build_up_sec)) < 1e-6
 
 
 def test_reaction_end_extends_for_long_celebration():

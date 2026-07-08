@@ -38,6 +38,14 @@ python3 -m venv .venv
 오검출을 걸러낸다. `vision.model`(기본 opus, `claude-haiku-4-5`=저비용),
 `vision.min_confidence`(예: 0.9로 정밀도 강화)로 조정. Anthropic API 키 필요.
 
+### 네트-ROI 골 정밀 위치 (선택, 무API)
+카메라가 고정이면 골망 위치도 고정 → 공이 네트를 때리는 **모션 스파이크**로
+정확한 골 프레임을 잡는다. `editor/calibrate.html`을 열어 각 캠 정지 프레임에
+골망 박스를 그려 `net_rois.json`을 만든 뒤 `locate.enabled: true` +
+`locate.rois_path` 지정. 컷 앵커가 함성 onset → **진짜 골 프레임**으로 정밀화된다.
+골망이 안 보이거나 스파이크가 약하면 **자동으로 onset 폴백**(클립은 유지).
+정지 프레임 추출: `ffmpeg -ss 60 -i data/raw/cam1/DJI_...MP4 -frames:v 1 cam1.jpg`.
+
 ## Tests
 ```bash
 ./.venv/bin/python -m pytest -v

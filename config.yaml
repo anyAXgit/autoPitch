@@ -26,4 +26,11 @@ vision:                 # goal-confirmation via sparse frames (V2/V3); off by de
   frame_height: 360
   model: claude-opus-4-8   # VLM for "goal celebration?" (claude-haiku-4-5 = cheaper)
   min_confidence: 0.0      # keep a goal only if verdict confidence >= this (e.g. 0.9 = stricter)
+locate:                   # net-ROI goal localization (fixed cameras); off by default
+  enabled: false
+  rois_path: net_rois.json   # from editor/calibrate.html: {camKeySubstring: [x,y,w,h] normalized}
+  pre_sec: 2
+  post_sec: 3
+  fps: 10
+  min_prominence: 6        # net motion spike must exceed window median by this many MADs
 # main_cam: camA   # cam id to use as Cam A / goal-detection + buildup reference (default: first cam alphabetically)

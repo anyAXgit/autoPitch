@@ -16,6 +16,19 @@ class VisionConfig:
 
 
 @dataclass
+class LocateConfig:
+    """Net-ROI goal localization (fixed cameras): find the exact goal frame from a
+    net-motion spike inside a calibrated goal box, else fall back to cheer onset."""
+    enabled: bool = False
+    rois_path: "str | None" = None   # net_rois.json: {camKeySubstring: [x,y,w,h] normalized}
+    pre_sec: float = 2.0             # search window [onset-pre, onset+post]
+    post_sec: float = 3.0
+    fps: float = 10.0               # motion sampling rate in the window
+    min_prominence: float = 6.0     # spike must exceed window median by this many MADs
+    frame_px: int = 64              # ROI downscaled to frame_px^2 for the diff
+
+
+@dataclass
 class Config:
     fps: int = 30
     build_up_sec: float = 5.0
@@ -37,6 +50,7 @@ class Config:
     bgm_path: "str | None" = None    # optional background-music file mixed under highlight_all
     bgm_volume: float = 0.15
     vision: VisionConfig = field(default_factory=VisionConfig)
+    locate: LocateConfig = field(default_factory=LocateConfig)
 
 
 def load_config(path: str = "config.yaml") -> Config:
@@ -45,8 +59,10 @@ def load_config(path: str = "config.yaml") -> Config:
     peak = raw.get("peak", {}) or {}
     reaction = raw.get("reaction", {}) or {}
     vision = raw.get("vision", {}) or {}
+    locate = raw.get("locate", {}) or {}
     defaults = Config()
     vdef = defaults.vision
+    ldef = defaults.locate
     return Config(
         fps=raw.get("fps", defaults.fps),
         build_up_sec=raw.get("build_up_sec", defaults.build_up_sec),
@@ -75,5 +91,14 @@ def load_config(path: str = "config.yaml") -> Config:
             frame_height=vision.get("frame_height", vdef.frame_height),
             model=vision.get("model", vdef.model),
             min_confidence=vision.get("min_confidence", vdef.min_confidence),
+        ),
+        locate=LocateConfig(
+            enabled=locate.get("enabled", ldef.enabled),
+            rois_path=locate.get("rois_path", ldef.rois_path),
+            pre_sec=locate.get("pre_sec", ldef.pre_sec),
+            post_sec=locate.get("post_sec", ldef.post_sec),
+            fps=locate.get("fps", ldef.fps),
+            min_prominence=locate.get("min_prominence", ldef.min_prominence),
+            frame_px=locate.get("frame_px", ldef.frame_px),
         ),
     )

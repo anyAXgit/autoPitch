@@ -52,7 +52,16 @@ python3 -m venv .venv
 ```
 실제 영상 없이 합성 더미로 sync/peak/planner/render를 검증한다.
 
-## plan.json & 편집 UI
+## GUI 스튜디오 (권장)
+루트 설정·골 ROI 캘리브레이션·후보 확인·영상 스크럽 미세편집·렌더를 한 곳에서.
+```bash
+./.venv/bin/python gui/server.py        # http://127.0.0.1:8756
+```
+로컬 서버(파이썬 stdlib, 추가 의존성 없음)가 ffmpeg/파이프라인을 돌리고 원본을
+range 스트리밍하므로 브라우저에서 실제 영상을 스크럽하며 컷을 다듬을 수 있다.
+탭: ① 설정(루트/경기) · ② 골 ROI(프레임에 박스 → net_rois.json) · ③ 편집·렌더.
+
+## plan.json & 편집 UI (정적)
 편집 결정(컷 in/out·앵글)은 `plan.json`에 데이터로 저장된다.
 `editor/index.html`을 브라우저로 열어 `plan.json`을 로드하면 클립별 포함/제외,
 컷 지점(초) 수정, 순서 변경, (출력 폴더 지정 시) 미리보기를 할 수 있다.

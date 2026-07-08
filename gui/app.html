@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MAHP 스튜디오</title>
+<style>
+  :root{--bg:#0f1216;--panel:#191f27;--line:#2a323d;--fg:#e7ebf0;--mut:#8b95a3;--accent:#4ea1ff;--ok:#37d67a;--drop:#ff6b6b;}
+  *{box-sizing:border-box;} body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 -apple-system,Segoe UI,Roboto,sans-serif;}
+  header{background:var(--panel);border-bottom:1px solid var(--line);padding:10px 16px;display:flex;gap:8px;align-items:center;}
+  header h1{font-size:15px;margin:0 14px 0 0;}
+  .tab{background:none;border:none;color:var(--mut);padding:8px 12px;cursor:pointer;border-radius:7px;font-size:13px;}
+  .tab.on{background:#232b34;color:var(--fg);}
+  #root{margin-left:auto;color:var(--mut);font-size:12px;max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  main{max-width:1000px;margin:0 auto;padding:16px;}
+  .btn{background:#232a33;color:var(--fg);border:1px solid var(--line);border-radius:7px;padding:6px 11px;cursor:pointer;font-size:13px;}
+  .btn:hover{border-color:var(--accent);} .btn.primary{background:var(--accent);color:#04101f;border-color:var(--accent);font-weight:600;}
+  .btn.sm{padding:3px 7px;font-size:12px;} .btn:disabled{opacity:.4;cursor:default;}
+  input,select{background:#0e1116;color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:6px 8px;font-size:13px;}
+  input[type=number]{width:80px;font-variant-numeric:tabular-nums;}
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:8px 0;}
+  .mut{color:var(--mut);} .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin:10px 0;}
+  canvas{max-width:100%;border:1px solid var(--line);border-radius:8px;cursor:crosshair;background:#000;display:block;}
+  video{width:100%;max-height:300px;background:#000;border-radius:8px;}
+  code{background:#0e1116;padding:1px 5px;border-radius:4px;border:1px solid var(--line);}
+  table{border-collapse:collapse;width:100%;margin-top:8px;} td,th{border:1px solid var(--line);padding:5px 8px;font-size:12px;text-align:left;}
+  .seg{display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:12px;margin:3px 0;}
+  .clip.excluded{opacity:.45;}
+  .t{color:var(--accent);font-variant-numeric:tabular-nums;}
+</style>
+</head>
+<body>
+<header>
+  <h1>🎬 MAHP 스튜디오</h1>
+  <button class="tab on" data-tab="setup">① 설정</button>
+  <button class="tab" data-tab="cal">② 골 ROI</button>
+  <button class="tab" data-tab="edit">③ 편집·렌더</button>
+  <span id="root">–</span>
+</header>
+<main>
+  <section id="setup"></section>
+  <section id="cal" hidden></section>
+  <section id="edit" hidden></section>
+</main>
+<script>
+const $=s=>document.querySelector(s);
+const api=async(p,o)=>{const r=await fetch(p,o);const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||r.status);return j;};
+const mmss=s=>`${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`;
+const round=(n,d=2)=>Math.round(n*10**d)/10**d;
+let STATE={root:'',games:[],rois_exists:false};
+
+document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('on',x===b));
+  ['setup','cal','edit'].forEach(id=>$('#'+id).hidden = id!==b.dataset.tab);
+  if(b.dataset.tab==='cal') renderCal();
+  if(b.dataset.tab==='edit') renderEdit();
+});
+
+async function loadState(){ STATE=await api('/api/state'); $('#root').textContent='📁 '+STATE.root; renderSetup(); }
+
+/* ---------- ① SETUP ---------- */
+function renderSetup(){
+  const g=STATE.games;
+  $('#setup').innerHTML=`
+    <div class="card">
+      <div class="row"><b>프로젝트 루트</b></div>
+      <div class="row"><input id="rootIn" style="flex:1" value="${STATE.root}">
+        <button class="btn" id="setRoot">설정</button></div>
+      <div class="mut">루트에 <code>data/raw/cam1</code>, <code>data/raw/cam2</code>, <code>config.yaml</code>이 있어야 합니다.</div>
+    </div>
+    <div class="card">
+      <div class="row"><b>감지된 경기</b> <span class="mut">(촬영시각 페어링)</span> ${STATE.rois_exists?'<span class="mut">· net_rois.json ✓</span>':'<span class="mut">· ROI 미설정</span>'}</div>
+      ${g.length?`<table><tr><th>경기</th><th>cam1</th><th>cam2</th><th>겹침</th></tr>
+        ${g.map(x=>`<tr><td>${x.game}</td><td>${x.cam1.split('/').pop()}</td><td>${x.cam2.split('/').pop()}</td><td>${mmss(x.overlap)}</td></tr>`).join('')}</table>`
+        :'<div class="mut">경기 없음 — 루트를 확인하세요.</div>'}
+    </div>`;
+  $('#setRoot').onclick=async()=>{ try{ STATE=await api('/api/root',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:$('#rootIn').value})}); $('#root').textContent='📁 '+STATE.root; renderSetup(); }catch(e){alert(e.message);} };
+}
+
+/* ---------- ② CALIBRATION ---------- */
+let calImg=null, calBox=null, calDrag=null, rois={};
+async function renderCal(){
+  rois=await api('/api/rois').catch(()=>({}));
+  const cams=[...new Set(STATE.games.flatMap(g=>[g.cam1,g.cam2]))];
+  $('#cal').innerHTML=`
+    <div class="card">
+      <div class="row"><b>골망 ROI 캘리브레이션</b> <span class="mut">고정 카메라의 골망을 한 번만 박스로.</span></div>
+      <div class="row">
+        <select id="calCam">${cams.map(c=>`<option value="${c}">${c.split('/').pop()}</option>`).join('')}</select>
+        <label class="mut">시각(초) <input id="calT" type="number" value="60" step="5"></label>
+        <button class="btn" id="calGrab">프레임 가져오기</button>
+        <label class="mut">키 <input id="calKey" style="width:90px" value=""></label>
+        <button class="btn" id="calAdd" disabled>박스 저장</button>
+        <button class="btn primary" id="calSave" disabled>net_rois.json 저장</button>
+      </div>
+      <canvas id="calCv" width="720" height="405"></canvas>
+      <table id="calTbl"><tr><th>키</th><th>x</th><th>y</th><th>w</th><th>h</th><th></th></tr></table>
+    </div>`;
+  const keyGuess=p=>{const n=p.split('/').pop(); return (n.match(/^[A-Za-z]+/)||['cam'])[0];};
+  $('#calCam').onchange=()=>$('#calKey').value=keyGuess($('#calCam').value);
+  $('#calKey').value=keyGuess($('#calCam').value);
+  $('#calGrab').onclick=async()=>{
+    const cam=$('#calCam').value,t=$('#calT').value;
+    calImg=new Image();
+    calImg.onload=()=>{const cv=$('#calCv');const w=Math.min(720,calImg.naturalWidth);cv.width=w;cv.height=Math.round(calImg.naturalHeight*w/calImg.naturalWidth);calBox=null;$('#calAdd').disabled=true;drawCal();};
+    calImg.src=`/api/frame?path=${encodeURIComponent(cam)}&t=${t}`;
+  };
+  const cv=$('#calCv'),ctx=cv.getContext('2d');
+  const pos=e=>{const r=cv.getBoundingClientRect();return{x:(e.clientX-r.left)*cv.width/r.width,y:(e.clientY-r.top)*cv.height/r.height};};
+  cv.onmousedown=e=>{if(calImg){const p=pos(e);calDrag={x0:p.x,y0:p.y};}};
+  cv.onmousemove=e=>{if(!calDrag)return;const p=pos(e);calBox={x:Math.min(calDrag.x0,p.x),y:Math.min(calDrag.y0,p.y),w:Math.abs(p.x-calDrag.x0),h:Math.abs(p.y-calDrag.y0)};drawCal();};
+  window.onmouseup=()=>{if(calDrag&&calBox&&calBox.w>4)$('#calAdd').disabled=false;calDrag=null;};
+  window.drawCal=()=>{ctx.clearRect(0,0,cv.width,cv.height);if(calImg)ctx.drawImage(calImg,0,0,cv.width,cv.height);if(calBox){ctx.strokeStyle='#37d67a';ctx.lineWidth=2;ctx.strokeRect(calBox.x,calBox.y,calBox.w,calBox.h);ctx.fillStyle='rgba(55,214,122,.15)';ctx.fillRect(calBox.x,calBox.y,calBox.w,calBox.h);}};
+  $('#calAdd').onclick=()=>{const k=$('#calKey').value.trim();if(!k||!calBox)return;const cv=$('#calCv');rois[k]=[round(calBox.x/cv.width,4),round(calBox.y/cv.height,4),round(calBox.w/cv.width,4),round(calBox.h/cv.height,4)];calTbl();$('#calSave').disabled=false;};
+  $('#calSave').onclick=async()=>{await api('/api/rois',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({rois})});alert('저장됨: net_rois.json');STATE.rois_exists=true;};
+  window.calTbl=()=>{const t=$('#calTbl');t.innerHTML='<tr><th>키</th><th>x</th><th>y</th><th>w</th><th>h</th><th></th></tr>'+Object.entries(rois).map(([k,v])=>`<tr><td>${k}</td>${v.map(n=>`<td>${n}</td>`).join('')}<td><button class="btn sm" onclick="delete rois['${k}'];calTbl()">삭제</button></td></tr>`).join('');};
+  calTbl();
+}
+
+/* ---------- ③ EDIT ---------- */
+let plan=null, clips=[];
+async function renderEdit(){
+  $('#edit').innerHTML=`<div class="card"><div class="row">
+    <b>경기</b><select id="edGame">${STATE.games.map(g=>`<option value="${g.game}">경기 ${g.game}</option>`).join('')}</select>
+    <button class="btn" id="edLoad">골 후보 불러오기</button>
+    <span id="edStat" class="mut"></span></div></div><div id="edList"></div>`;
+  $('#edLoad').onclick=async()=>{
+    $('#edStat').textContent='감지 중… (오디오 분석, 수십 초)';
+    try{ plan=await api('/api/plan?game='+$('#edGame').value);
+      clips=plan.clips.map(c=>({data:c,include:true})); drawEdit(); }
+    catch(e){ $('#edStat').textContent='오류: '+e.message; }
+  };
+}
+function segLen(c){const xf=plan.crossfade_sec||0;return Math.max(0,c.segments.reduce((a,g)=>a+(g.src_out-g.src_in),0)-xf*(c.segments.length-1));}
+function drawEdit(){
+  const inc=clips.filter(c=>c.include);
+  $('#edStat').textContent=`후보 ${clips.length} · 포함 ${inc.length} · 합본 ~${mmss(inc.reduce((a,c)=>a+segLen(c),0))}`;
+  const list=$('#edList'); list.innerHTML='';
+  clips.forEach((c,i)=>{
+    const d=c.data, el=document.createElement('div'); el.className='card clip'+(c.include?'':' excluded');
+    const s0=d.segments[0];
+    el.innerHTML=`
+      <div class="row"><b>골 <span class="t">${mmss(d.T)}</span></b>
+        <span class="mut">peak ${round(d.peak,1)} · ${d.segments.length}컷 · ~${round(segLen(c),1)}s</span>
+        <label style="margin-left:auto"><input type="checkbox" ${c.include?'checked':''} data-inc> 포함</label>
+        <button class="btn sm" data-up ${i===0?'disabled':''}>▲</button>
+        <button class="btn sm" data-down ${i===clips.length-1?'disabled':''}>▼</button></div>
+      <video data-vid preload="metadata" controls src="/media/${encodeURIComponent(s0.src_rel)}#t=${round(s0.src_in,2)}"></video>
+      ${d.segments.map((g,si)=>`<div class="seg" data-si="${si}">
+        <span class="mut" style="min-width:66px">${si===0?'빌드업':'리액션'}</span>
+        in<input type="number" step="0.1" value="${round(g.src_in,2)}" data-f="src_in">
+        <button class="btn sm" data-seek="in">▶위치</button><button class="btn sm" data-set="src_in">=재생점</button>
+        out<input type="number" step="0.1" value="${round(g.src_out,2)}" data-f="src_out">
+        <button class="btn sm" data-seek="out">▶위치</button><button class="btn sm" data-set="src_out">=재생점</button>
+        <span class="mut">${round(g.src_out-g.src_in,2)}s</span></div>`).join('')}`;
+    const vid=el.querySelector('[data-vid]');
+    el.querySelector('[data-inc]').onchange=e=>{c.include=e.target.checked;drawEdit();};
+    el.querySelector('[data-up]').onclick=()=>{[clips[i-1],clips[i]]=[clips[i],clips[i-1]];drawEdit();};
+    el.querySelector('[data-down]').onclick=()=>{[clips[i+1],clips[i]]=[clips[i],clips[i+1]];drawEdit();};
+    el.querySelectorAll('.seg').forEach(sg=>{
+      const si=+sg.dataset.si;
+      sg.querySelectorAll('input').forEach(inp=>inp.onchange=e=>{d.segments[si][e.target.dataset.f]=parseFloat(e.target.value)||0;drawEdit();});
+      sg.querySelectorAll('[data-seek]').forEach(b=>b.onclick=()=>{vid.currentTime=d.segments[si][b.dataset.seek==='in'?'src_in':'src_out'];});
+      sg.querySelectorAll('[data-set]').forEach(b=>b.onclick=()=>{d.segments[si][b.dataset.set]=round(vid.currentTime,2);drawEdit();});
+    });
+    list.appendChild(el);
+  });
+  const foot=document.createElement('div'); foot.className='card'; foot.innerHTML=`
+    <div class="row"><button class="btn primary" id="edRender">포함 클립 렌더</button>
+      <label class="mut">출력 <input id="edOut" value="data/output/gui" style="width:180px"></label>
+      <span id="edRstat" class="mut"></span></div>`;
+  list.appendChild(foot);
+  $('#edRender').onclick=async()=>{
+    const out={...plan,clips:clips.filter(c=>c.include).map(c=>c.data)};
+    $('#edRstat').textContent='렌더 중…';
+    try{ const r=await api('/api/render',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({plan:out,out:$('#edOut').value})});
+      $('#edRstat').innerHTML=`완료: ${r.clips.length}클립 → <code>${$('#edOut').value}</code>`; }
+    catch(e){ $('#edRstat').textContent='오류: '+e.message; }
+  };
+}
+loadState();
+</script>
+</body>
+</html>

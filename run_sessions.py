@@ -53,16 +53,16 @@ def _probe(path):
     return start, dur
 
 
-def pair_games():
+def pair_games(cam1_dir=CAM1_DIR, cam2_dir=CAM2_DIR):
     """Match each cam1 clip to its nearest-in-time cam2 partner.
 
     Returns a list of dicts (game 1..N in cam1 chronological order):
     {game, cam1, cam2, start1, start2, dur1, dur2, overlap}.
     """
     c1 = [{"path": p, "start": s, "dur": d}
-          for p in _list_videos(CAM1_DIR) for s, d in [_probe(p)]]
+          for p in _list_videos(cam1_dir) for s, d in [_probe(p)]]
     c2 = [{"path": p, "start": s, "dur": d}
-          for p in _list_videos(CAM2_DIR) for s, d in [_probe(p)]]
+          for p in _list_videos(cam2_dir) for s, d in [_probe(p)]]
     if any(r["start"] is None for r in c1 + c2):
         raise SystemExit("A clip is missing creation_time metadata; cannot pair by time.")
 

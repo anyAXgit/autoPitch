@@ -21,8 +21,11 @@ class LocateConfig:
     net-motion spike inside a calibrated goal box, else fall back to cheer onset."""
     enabled: bool = False
     rois_path: "str | None" = None   # net_rois.json: {camKeySubstring: [x,y,w,h] normalized}
-    pre_sec: float = 2.0             # search window [onset-pre, onset+post]
-    post_sec: float = 3.0
+    # Search window [onset-pre, onset+post], biased BEFORE the onset: the ball hits
+    # the net a beat before the crowd cheers, so a spike well after onset is
+    # keeper-retrieval / scramble, not the goal.
+    pre_sec: float = 2.5
+    post_sec: float = 0.5
     fps: float = 10.0               # motion sampling rate in the window
     min_prominence: float = 6.0     # spike must exceed window median by this many MADs
     frame_px: int = 64              # ROI downscaled to frame_px^2 for the diff

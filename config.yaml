@@ -29,8 +29,8 @@ vision:                 # goal-confirmation via sparse frames (V2/V3); off by de
 locate:                   # net-ROI goal localization (fixed cameras); off by default
   enabled: false
   rois_path: net_rois.json   # from editor/calibrate.html: {camKeySubstring: [x,y,w,h] normalized}
-  pre_sec: 2
-  post_sec: 3
+  pre_sec: 2.5             # search window is biased BEFORE onset (ball-in precedes the cheer)
+  post_sec: 0.5
   fps: 10
   min_prominence: 6        # net motion spike must exceed window median by this many MADs
 # main_cam: camA   # cam id to use as Cam A / goal-detection + buildup reference (default: first cam alphabetically)

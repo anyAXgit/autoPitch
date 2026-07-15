@@ -91,8 +91,11 @@ def test_render_multicam_clip(tmp_path):
     peaks = detect_peaks(res["audio"]["camA"], cfg)
     plan = build_plan(res, offsets, peaks, "camA", cfg)
     out_dir = tmp_path / "out"
-    paths = render_plan(plan, str(out_dir))
+    progress = []
+    paths = render_plan(plan, str(out_dir),
+                        on_clip=lambda i, n, p: progress.append((i, n)))
     assert len(paths) == 1
+    assert progress == [(1, 1)]          # progress callback fired per clip
     assert os.path.exists(paths[0])
     assert os.path.exists(os.path.join(str(out_dir), "highlight_all.mp4"))
     # clip has audio + video streams

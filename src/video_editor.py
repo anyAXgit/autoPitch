@@ -97,7 +97,9 @@ def mix_bgm(video_path, bgm_path, volume, out_path):
     ])
 
 
-def render_plan(plan, output_dir, bgm_path=None, bgm_volume=0.15):
+def render_plan(plan, output_dir, bgm_path=None, bgm_volume=0.15, on_clip=None):
+    """Render every clip in the plan. `on_clip(i, n, path)` (optional) is called
+    after each clip finishes -- used by the GUI to report render progress."""
     _ensure_filters()
     os.makedirs(output_dir, exist_ok=True)
     fps = plan["fps"]
@@ -105,12 +107,14 @@ def render_plan(plan, output_dir, bgm_path=None, bgm_volume=0.15):
     width = plan.get("output_width", 1920)
     height = plan.get("output_height", 1080)
     clip_paths = []
-    for clip in plan["clips"]:
+    for i, clip in enumerate(plan["clips"]):
         name = f"highlight_{clip['T']:.1f}.mp4"
         out_path = os.path.join(output_dir, name)
         work = os.path.join(output_dir, f".work_{clip['T']:.1f}")
         render_clip(clip, fps, xfade, work, out_path, width, height)
         clip_paths.append(out_path)
+        if on_clip:
+            on_clip(i + 1, len(plan["clips"]), out_path)
 
     # write plan.json alongside outputs (editor contract / future UI)
     with open(os.path.join(output_dir, "plan.json"), "w") as f:

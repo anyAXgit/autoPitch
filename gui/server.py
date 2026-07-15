@@ -16,7 +16,9 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
 import urllib.parse
+import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -51,6 +53,25 @@ def games_list():
             "dur1": g["dur1"], "dur2": g["dur2"], "overlap": g["overlap"],
         })
     return out
+
+
+def _plan_cache_path(game):
+    return os.path.join(STATE["root"], "data", "_gui", f"plan_game{game}.json")
+
+
+def cached_plan(game):
+    """Return the cached plan if it exists and is newer than config.yaml and
+    net_rois.json (recalibrating or retuning must invalidate it)."""
+    p = _plan_cache_path(game)
+    if not os.path.exists(p):
+        return None
+    deps = [os.path.join(STATE["root"], "config.yaml"),
+            os.path.join(STATE["root"], "net_rois.json")]
+    newest_dep = max((os.path.getmtime(d) for d in deps if os.path.exists(d)), default=0)
+    if os.path.getmtime(p) < newest_dep:
+        return None
+    with open(p) as f:
+        return json.load(f)
 
 
 def compute_plan(game):
@@ -89,15 +110,39 @@ def compute_plan(game):
             seg["src_rel"] = os.path.relpath(seg["src"], root)
     plan["game"] = game
     plan["offsets"] = offsets
+    with open(_plan_cache_path(game), "w") as f:
+        json.dump(plan, f)
     return plan
 
 
-def render_plan_to(plan, out_rel, bgm=None, bgm_volume=0.15):
+JOBS = {}   # job_id -> {"status": running|done|error, "progress": [i, n], ...}
+
+
+def _render_job(job_id, plan, out_rel, bgm, bgm_volume):
     from src.video_editor import render_plan
     root = STATE["root"]
-    out_dir = os.path.join(root, out_rel)
-    clips = render_plan(plan, out_dir, os.path.join(root, bgm) if bgm else None, bgm_volume)
-    return [os.path.relpath(c, root) for c in clips]
+    job = JOBS[job_id]
+    try:
+        out_dir = within_root(out_rel)
+        bgm_path = within_root(bgm) if bgm else None
+
+        def on_clip(i, n, path):
+            job["progress"] = [i, n]
+
+        clips = render_plan(plan, out_dir, bgm_path, bgm_volume, on_clip=on_clip)
+        job.update(status="done",
+                   clips=[os.path.relpath(c, root) for c in clips])
+    except Exception as e:  # noqa
+        job.update(status="error", error=f"{type(e).__name__}: {e}")
+
+
+def start_render(plan, out_rel, bgm=None, bgm_volume=0.15):
+    job_id = uuid.uuid4().hex[:12]
+    JOBS[job_id] = {"status": "running", "progress": [0, len(plan.get("clips", []))]}
+    t = threading.Thread(target=_render_job,
+                         args=(job_id, plan, out_rel, bgm, bgm_volume), daemon=True)
+    t.start()
+    return job_id
 
 
 def grab_frame(rel, t):
@@ -182,7 +227,17 @@ class Handler(BaseHTTPRequestHandler):
                 t = float(q.get("t", ["0"])[0])
                 return self._send_file(grab_frame(q["path"][0], t), "image/jpeg")
             if u.path == "/api/plan":
-                return self._json(compute_plan(int(q["game"][0])))
+                game = int(q["game"][0])
+                fresh = q.get("fresh", ["0"])[0] == "1"
+                plan = None if fresh else cached_plan(game)
+                if plan is None:
+                    plan = compute_plan(game)
+                else:
+                    plan["cached"] = True
+                return self._json(plan)
+            if u.path == "/api/render_status":
+                job = JOBS.get(q.get("job", [""])[0])
+                return self._json(job if job else {"status": "error", "error": "unknown job"})
             if u.path.startswith("/media/"):
                 return self._send_file(within_root(urllib.parse.unquote(u.path[len("/media/"):])))
             return self._err("not found", 404)
@@ -204,9 +259,9 @@ class Handler(BaseHTTPRequestHandler):
                 json.dump(body["rois"], open(os.path.join(STATE["root"], "net_rois.json"), "w"), indent=2)
                 return self._json({"ok": True})
             if u.path == "/api/render":
-                clips = render_plan_to(body["plan"], body.get("out", "data/output/gui"),
-                                       body.get("bgm"), body.get("bgm_volume", 0.15))
-                return self._json({"clips": clips})
+                job = start_render(body["plan"], body.get("out", "data/output/gui"),
+                                   body.get("bgm"), body.get("bgm_volume", 0.15))
+                return self._json({"job": job})
             return self._err("not found", 404)
         except Exception as e:  # noqa
             return self._err(f"{type(e).__name__}: {e}", 500)

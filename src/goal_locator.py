@@ -88,16 +88,45 @@ def _roi_gray_frames_full(source, roi, fps, px):
 
 
 def _roi_gray_keyframes(source, roi, px):
+    """Keyframe-only ROI decode. Returns (frames, times) with REAL pts per
+    keyframe via showinfo -- GOP length varies by camera (DJI ~0.5s), so
+    assuming a fixed keyframe cadence stretches the timeline badly."""
+    import re
     x, y, w, h = roi
-    vf = f"crop=iw*{w}:ih*{h}:iw*{x}:ih*{y},scale={px}:{px},format=gray"
-    out = subprocess.run(
-        ["ffmpeg", "-v", "error", "-skip_frame", "nokey", "-i", source,
-         "-vf", vf, "-f", "rawvideo", "-pix_fmt", "gray", "-"],
-        capture_output=True, check=True,
-    ).stdout
-    buf = np.frombuffer(out, dtype=np.uint8)
+    vf = (f"crop=iw*{w}:ih*{h}:iw*{x}:ih*{y},scale={px}:{px},format=gray,"
+          f"showinfo")
+    def run(hw):
+        # -vsync 0: without it ffmpeg DUPLICATES the sparse keyframes back up to
+        # the stream fps, which zeroes most frame diffs (MAD~0 -> everything
+        # "prominent") and silently defeats the keyframe fast path.
+        return subprocess.run(
+            ["ffmpeg", "-v", "info", *(["-hwaccel", "videotoolbox"] if hw else []),
+             "-skip_frame", "nokey", "-i", source, "-vsync", "0",
+             "-vf", vf, "-f", "rawvideo", "-pix_fmt", "gray", "-"],
+            capture_output=True, check=True,
+        )
+    try:
+        p = run(hw=True)      # HEVC decode dominates the whole-match scan
+    except subprocess.CalledProcessError:
+        p = run(hw=False)     # no VideoToolbox on this machine/build
+    buf = np.frombuffer(p.stdout, dtype=np.uint8)
     n = buf.size // (px * px)
-    return buf[:n * px * px].reshape(n, px, px).astype(np.float32)
+    frames = buf[:n * px * px].reshape(n, px, px).astype(np.float32)
+    times = [float(m) for m in re.findall(r"pts_time:\s*([0-9.]+)",
+                                          p.stderr.decode(errors="replace"))]
+    return frames, times[:n]
+
+
+def _duration(source):
+    out = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+         "-of", "default=noprint_wrappers=1:nokey=1", source],
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()
+    try:
+        return float(out)
+    except ValueError:
+        return None
 
 
 def _motion_events(frames, t0, fps, min_prominence, min_gap_sec=0.0, frame_times=None):
@@ -137,7 +166,7 @@ def _motion_events(frames, t0, fps, min_prominence, min_gap_sec=0.0, frame_times
     return kept
 
 
-def event_impulse_ok(source, event_time, cfg, roi):
+def event_impulse_ok(source, event_time, cfg, roi, fail_open=True):
     """Tier-0 goal/junk gate on an ROI event's TEMPORAL SHAPE (free, no ML).
 
     A ball hitting the net is a brief impulse (<~1s of high motion, then quick
@@ -150,7 +179,7 @@ def event_impulse_ok(source, event_time, cfg, roi):
     t0 = max(0.0, event_time - 2.0)
     frames = _roi_gray_frames(source, t0, 4.0, roi, lc.fps, lc.frame_px)
     if len(frames) < 5:
-        return True   # can't judge -> don't drop
+        return fail_open   # can't judge: refine context keeps, scan context drops
     motion = np.mean(np.abs(np.diff(frames, axis=0)), axis=(1, 2))
     med = float(np.median(motion))
     peak = float(motion.max())
@@ -183,7 +212,8 @@ def _scan_cache_key(source, roi, lc):
         mtime = 0
     return json.dumps([os.path.abspath(source), mtime, [round(v, 4) for v in roi],
                        lc.scan_min_prominence, lc.scan_fps, lc.scan_frame_px,
-                       lc.scan_max_impulse_sec], sort_keys=True)
+                       lc.scan_max_impulse_sec, lc.scan_max_candidates],
+                      sort_keys=True)
 
 
 def scan_goal_events(source, cfg, roi, min_gap_sec, cache_path=None):
@@ -209,19 +239,31 @@ def scan_goal_events(source, cfg, roi, min_gap_sec, cache_path=None):
         return cache[key]
 
     scan_px = getattr(lc, "scan_frame_px", min(lc.frame_px, 32))
-    frames = _roi_gray_keyframes(source, roi, scan_px)
-    if len(frames) >= 3:
-        rough = _motion_events(frames, 0.0, 1.0, lc.scan_min_prominence, min_gap_sec)
+    frames, kf_times = _roi_gray_keyframes(source, roi, scan_px)
+    if len(frames) >= 3 and len(kf_times) >= len(frames):
+        rough = _motion_events(frames, 0.0, 1.0, lc.scan_min_prominence,
+                               min_gap_sec, frame_times=kf_times)
     else:
         scan_fps = getattr(lc, "scan_fps", min(lc.fps, 2.0))
         frames = _roi_gray_frames_full(source, roi, scan_fps, scan_px)
         rough = _motion_events(frames, 0.0, scan_fps, lc.scan_min_prominence, min_gap_sec)
 
+    # A busy net area (wind, lighting flicker, warm-ups) can make the rough pass
+    # fire everywhere; each refine+gate costs an ffmpeg decode, so bound the work
+    # to the strongest candidates instead of refining thousands of them.
+    dur = _duration(source)
+    if dur:
+        rough = [ev for ev in rough if ev["goal_time"] <= dur - 0.5]
+    rough = sorted(rough, key=lambda ev: -ev["confidence"])[:lc.scan_max_candidates]
+    rough.sort(key=lambda ev: ev["goal_time"])
+
     refined = []
     for ev in rough:
         r = locate_goal(source, ev["goal_time"], cfg, roi)
         ev = r or ev
-        if event_impulse_ok(source, ev["goal_time"], cfg, roi):   # Tier-0 shape gate
+        # Tier-0 shape gate; ROI-only candidates have no audio backup, so an
+        # unjudgeable window drops the event (fail-closed) instead of passing junk.
+        if event_impulse_ok(source, ev["goal_time"], cfg, roi, fail_open=False):
             refined.append(ev)
 
     if cache_path:

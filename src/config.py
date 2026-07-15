@@ -33,6 +33,7 @@ class LocateConfig:
     scan_fps: float = 2.0           # cheaper full-game ROI-only scan rate
     scan_frame_px: int = 32         # cheaper full-game ROI-only frame size
     scan_max_impulse_sec: float = 1.2   # Tier-0 gate: net-hit motion must be a brief impulse
+    scan_max_candidates: int = 40   # refine/gate only the strongest rough hits (cost bound)
     scan_verify: str = "shape"      # ROI-only verification: shape (free) | vlm (net-crop judge)
     scan_cache: str = "data/_gui/roi_scan_cache.json"   # whole-match scan results cache
     frame_px: int = 64              # ROI downscaled to frame_px^2 for the diff
@@ -112,6 +113,7 @@ def load_config(path: str = "config.yaml") -> Config:
             fps=locate.get("fps", ldef.fps),
             min_prominence=locate.get("min_prominence", ldef.min_prominence),
             scan_max_impulse_sec=locate.get("scan_max_impulse_sec", ldef.scan_max_impulse_sec),
+            scan_max_candidates=locate.get("scan_max_candidates", ldef.scan_max_candidates),
             scan_verify=locate.get("scan_verify", ldef.scan_verify),
             scan_cache=locate.get("scan_cache", ldef.scan_cache),
             scan_enabled=locate.get("scan_enabled", ldef.scan_enabled),

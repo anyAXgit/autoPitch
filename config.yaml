@@ -38,6 +38,7 @@ locate:                   # net-ROI goal localization (fixed cameras); off by de
   scan_min_prominence: 10  # stricter ROI-only threshold for quiet goals with weak/no cheer
   scan_fps: 2              # cheaper full-game ROI-only scan rate
   scan_frame_px: 32        # cheaper full-game ROI-only frame size
-  scan_max_impulse_sec: 1.2   # 네트 히트=짧은 임펄스; 이보다 긴 지속 모션(키퍼 등)은 컷
+  scan_max_impulse_sec: 1.2   # 네트 히트=짧은 임펄스; 지속 모션(키퍼 등)은 컷
+  scan_max_candidates: 40  # 러프 후보 상위 N개만 정밀검증 (비용 상한)
   scan_verify: shape       # ROI-only 후보 검증: shape(무료) | vlm(네트 크롭 AI 판정, API 키 필요)
 # main_cam: camA   # cam id to use as Cam A / goal-detection + buildup reference (default: first cam alphabetically)

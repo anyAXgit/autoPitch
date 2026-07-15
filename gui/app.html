@@ -32,6 +32,62 @@
   .prog{height:8px;background:#0e1116;border:1px solid var(--line);border-radius:4px;overflow:hidden;margin-top:8px;}
   .prog i{display:block;height:100%;background:var(--accent);width:0;transition:width .3s;}
   .clip:focus{outline:1px solid var(--accent);}
+  /* ---- NLE editor (webcut-style) ---- */
+  main.wide{max-width:none;padding:0;}
+  .nle{display:grid;grid-template-rows:auto minmax(0,1fr) 218px;grid-template-columns:minmax(0,1fr);height:calc(100vh - 47px);}
+  .nle>*{min-width:0;}
+  .nle-bar{display:flex;gap:8px;align-items:center;padding:8px 12px;border-bottom:1px solid var(--line);background:var(--panel);flex-wrap:wrap;}
+  .nle-top{display:grid;grid-template-columns:236px minmax(0,1fr) 268px;min-height:0;}
+  .npane{border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0;background:var(--bg);}
+  .npane:last-child{border-right:none;}
+  .npane .hd{padding:7px 10px;font-size:12px;color:var(--mut);border-bottom:1px solid var(--line);background:var(--panel);}
+  .npane .bd{overflow-y:auto;flex:1;min-height:0;padding:8px;}
+  .lib-item{padding:7px 9px;border:1px solid var(--line);border-radius:7px;margin-bottom:6px;cursor:pointer;font-size:12px;display:flex;gap:6px;align-items:center;}
+  .lib-item.sel{border-color:var(--accent);background:#182230;}
+  .lib-item.off{opacity:.45;}
+  .lib-item .t{font-weight:600;}
+  .lib-item .mut{margin-left:auto;}
+  .viewer{display:flex;flex-direction:column;min-height:0;}
+  .viewer video{flex:1;min-height:0;width:100%;max-height:none;object-fit:contain;background:#000;border-radius:0;}
+  .transport{display:flex;gap:6px;align-items:center;justify-content:center;padding:7px;background:var(--panel);border-top:1px solid var(--line);}
+  .transport .time{font-variant-numeric:tabular-nums;color:var(--mut);font-size:12px;min-width:120px;text-align:center;}
+  .insp .sec{border-bottom:1px solid var(--line);padding:9px 10px;}
+  .insp .lbl{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px;}
+  .insp .kv{display:flex;gap:6px;align-items:center;font-size:12px;margin:4px 0;flex-wrap:wrap;}
+  .insp input[type=number]{width:74px;padding:4px 6px;}
+  .insp .btn{width:100%;margin-top:5px;text-align:center;}
+  .insp .btn.half{width:calc(50% - 3px);display:inline-block;}
+  /* timeline */
+  .ntl{display:flex;flex-direction:column;min-height:0;border-top:1px solid var(--line);background:#0d1014;}
+  .ntl-bar{display:flex;gap:8px;align-items:center;padding:5px 10px;border-bottom:1px solid var(--line);font-size:12px;color:var(--mut);}
+  .ntl-bar input[type=range]{width:110px;}
+  .ntl-scroll{overflow-x:auto;overflow-y:hidden;flex:1;position:relative;min-width:0;}
+  .ntl-inner{position:relative;height:100%;min-width:100%;}
+  .nruler{position:relative;height:22px;border-bottom:1px solid var(--line);cursor:pointer;}
+  .nruler .tick{position:absolute;top:0;height:100%;border-left:1px solid #2b323d;color:#64707f;font-size:10px;padding:3px 0 0 4px;user-select:none;}
+  .nlane{position:relative;height:96px;margin-top:14px;}
+  .nclip{position:absolute;top:0;height:96px;background:#141a22;border:1px solid #2b3644;border-radius:7px;overflow:hidden;cursor:grab;}
+  .nclip.selected{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent);}
+  .nclip .nwave{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;border:none;background:transparent;}
+  .nclip .nseg{position:absolute;top:0;bottom:0;pointer-events:none;}
+  .nclip .nseg.s0{background:rgba(47,93,138,.35);}
+  .nclip .nseg.s1{background:rgba(138,90,47,.35);}
+  .nclip .nlabel{position:absolute;left:6px;top:4px;font-size:11px;color:#dfe7f0;text-shadow:0 1px 2px #000;pointer-events:none;white-space:nowrap;}
+  .nclip .ncams{position:absolute;left:6px;bottom:4px;font-size:10px;color:#9fb0c2;text-shadow:0 1px 2px #000;pointer-events:none;}
+  .nclip .trim{position:absolute;top:0;bottom:0;width:9px;cursor:ew-resize;background:rgba(78,161,255,.25);}
+  .nclip .trim.l{left:0;border-radius:7px 0 0 7px;} .nclip .trim.r{right:0;border-radius:0 7px 7px 0;}
+  .nclip .trim:hover{background:rgba(78,161,255,.6);}
+  .nclip .ncut{position:absolute;top:0;bottom:0;width:9px;margin-left:-4.5px;cursor:ew-resize;background:rgba(55,214,122,.45);}
+  .nclip .ncut:hover{background:rgba(55,214,122,.8);}
+  .nclip .ndel{position:absolute;right:11px;top:3px;background:none;border:none;color:#8b95a3;cursor:pointer;font-size:12px;}
+  .nclip .ndel:hover{color:var(--drop);}
+  .nph{position:absolute;top:0;bottom:0;width:2px;background:#fff;pointer-events:none;z-index:5;}
+  .nph .head{position:absolute;top:0;left:-5px;width:12px;height:12px;background:#fff;border-radius:0 0 6px 6px;pointer-events:auto;cursor:ew-resize;}
+  .nskim{position:absolute;top:0;bottom:0;width:1px;background:rgba(255,255,255,.35);pointer-events:none;z-index:4;display:none;}
+  .ntl-empty{color:var(--mut);font-size:12px;padding:30px 16px;}
+  .tbtn{background:#232a33;border:1px solid var(--line);color:var(--fg);border-radius:6px;padding:3px 9px;cursor:pointer;font-size:12px;}
+  .tbtn.on{border-color:var(--accent);color:var(--accent);}
+  .tbtn:disabled{opacity:.4;}
   code{background:#0e1116;padding:1px 5px;border-radius:4px;border:1px solid var(--line);}
   table{border-collapse:collapse;width:100%;margin-top:8px;} td,th{border:1px solid var(--line);padding:5px 8px;font-size:12px;text-align:left;}
   .seg{display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:12px;margin:3px 0;}
@@ -62,6 +118,7 @@ let STATE={root:'',games:[],rois_exists:false};
 document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{
   document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('on',x===b));
   ['setup','cal','edit'].forEach(id=>$('#'+id).hidden = id!==b.dataset.tab);
+  document.querySelector('main').classList.toggle('wide', b.dataset.tab==='edit');
   if(b.dataset.tab==='cal') renderCal();
   if(b.dataset.tab==='edit') renderEdit();
 });
@@ -158,190 +215,409 @@ async function renderCal(){
   calTbl(); updStat(); grab();   // auto-load first cam frame + its saved ROI
 }
 
-/* ---------- ③ EDIT — timeline editor ---------- */
-let plan=null, clips=[];
+/* ---------- ③ EDIT — NLE editor (webcut-style: library / viewer / inspector / sequence timeline) ---------- */
+let plan=null, clips=[], selId=null, nextId=1;
+let PXPS=9, snapOn=true, autoFit=true;
+let playN=0, playing=false, curIdx=0, curSeg=0, rafId=null, lastTs=0, switching=false;
+let hist=[], future=[];
 const camName=p=>{const n=(p||'').split('/').pop();return (n.match(/^[A-Za-z0-9]+/)||['cam'])[0];};
-function segLen(c){const xf=plan.crossfade_sec||0;const s=c.data.segments.reduce((a,g)=>a+(g.src_out-g.src_in),0);return Math.max(0,s-xf*(c.data.segments.length-1));}
-function updStats(){const inc=clips.filter(c=>c.include);
-  $('#edStat').textContent=`후보 ${clips.length} · 포함 ${inc.length} · 합본 ~${mmss(inc.reduce((a,c)=>a+segLen(c),0))}`;}
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 
+/* ---- sequence model: included clips in order; u inside clip = seg0 span then seg1 span ---- */
+const segDur=g=>g.src_out-g.src_in;
+const clipDur=c=>c.data.segments.reduce((a,g)=>a+segDur(g),0);
+const seqClips=()=>clips.filter(c=>c.include);
+const seqDur=()=>seqClips().reduce((a,c)=>a+clipDur(c),0);
+const offsetOf=i=>{let x=0;const sc=seqClips();for(let k=0;k<i;k++)x+=clipDur(sc[k]);return x;};
+function locate(t){ // seq time -> {idx, seg, src, rel}
+  const sc=seqClips(); let x=0;
+  for(let i=0;i<sc.length;i++){
+    const c=sc[i], d=clipDur(c);
+    if(t<x+d||i===sc.length-1){
+      const u=clamp(t-x,0,d), s=c.data.segments, d0=segDur(s[0]);
+      if(u<d0||s.length===1)return{idx:i,seg:0,src:s[0].src_in+Math.min(u,d0),rel:s[0].src_rel,clip:c};
+      return{idx:i,seg:1,src:s[1].src_in+(u-d0),rel:s[1].src_rel,clip:c};
+    }
+    x+=d;
+  }
+  return null;
+}
+function editPoints(){const pts=[0];let x=0;for(const c of seqClips()){const s=c.data.segments;if(s.length>1)pts.push(x+segDur(s[0]));x+=clipDur(c);pts.push(x);}return pts;}
+
+/* ---- undo/redo ---- */
+const snapState=()=>clips.map(c=>({id:c.id,include:c.include,data:JSON.parse(JSON.stringify(c.data))}));
+function pushHist(){hist.push(snapState());if(hist.length>60)hist.shift();future=[];updUndo();}
+function undo(){if(!hist.length)return;future.push(snapState());clips=hist.pop();fixSel();renderAll();}
+function redo(){if(!future.length)return;hist.push(snapState());clips=future.pop();fixSel();renderAll();}
+function updUndo(){const u=$('#nUndo'),r=$('#nRedo');if(u){u.disabled=!hist.length;r.disabled=!future.length;}}
+function fixSel(){if(!clips.find(c=>c.id===selId))selId=clips.length?clips[0].id:null;}
+const selClip=()=>clips.find(c=>c.id===selId);
+
+/* ---- shell ---- */
 async function renderEdit(){
-  $('#edit').innerHTML=`<div class="card"><div class="row">
-    <b>경기</b><select id="edGame">${STATE.games.map(g=>`<option value="${g.game}">경기 ${g.game}</option>`).join('')}</select>
-    <button class="btn" id="edLoad">골 후보 불러오기</button>
-    <button class="btn" id="edFresh" title="오디오·넷ROI 다시 분석 (캘리브레이션 바꿨으면 이걸로)">다시 감지</button>
-    <span id="edStat" class="mut"></span></div>
-    <div class="mut">카드 클릭 후 — <b>Space</b> 구간 재생 · <b>I</b> 인 · <b>O</b> 아웃 · <b>C</b> 컷(앵글 전환)을 재생 위치로. 타임라인의 핸들을 드래그해 다듬으세요.</div>
-  </div><div id="edList"></div>`;
+  document.querySelector('main').classList.add('wide');
+  $('#edit').innerHTML=`<div class="nle">
+    <div class="nle-bar">
+      <b style="font-size:13px">경기</b>
+      <select id="edGame">${STATE.games.map(g=>`<option value="${g.game}">경기 ${g.game}</option>`).join('')}</select>
+      <button class="btn" id="edLoad">불러오기</button>
+      <button class="btn" id="edFresh" title="오디오·넷ROI 다시 분석">다시 감지</button>
+      <span class="mut">|</span>
+      <button class="tbtn" id="nUndo" title="Cmd+Z" disabled>↩︎</button>
+      <button class="tbtn" id="nRedo" title="Cmd+Shift+Z" disabled>↪︎</button>
+      <span id="edStat" class="mut" style="margin-left:6px"></span>
+      <span style="margin-left:auto"></span>
+      <input id="edOut" value="${window._edOut||'data/output/gui'}" style="width:140px" title="출력 폴더">
+      <input id="edBgm" placeholder="BGM (선택)" value="${window._edBgm||''}" style="width:120px">
+      <input id="edVol" type="range" min="0" max="0.5" step="0.05" value="${window._edVol||0.15}" style="width:70px" title="BGM 음량">
+      <button class="btn primary" id="edRender">렌더</button>
+      <span id="edRstat" class="mut" style="font-size:12px"></span>
+    </div>
+    <div class="nle-top">
+      <div class="npane"><div class="hd">라이브러리 — 골 후보 <span id="libN"></span></div><div class="bd" id="nLib"></div></div>
+      <div class="npane viewer">
+        <video id="nVid" preload="metadata" playsinline></video>
+        <div class="transport">
+          <button class="tbtn" id="tpStart" title="처음">⏮</button>
+          <button class="tbtn" id="tpPrev" title="이전 편집점 (↑)">↑</button>
+          <button class="tbtn" id="tpPlay" title="재생/정지 (Space)" style="min-width:44px">▶</button>
+          <button class="tbtn" id="tpNext" title="다음 편집점 (↓)">↓</button>
+          <button class="tbtn" id="tpEnd" title="끝">⏭</button>
+          <span class="time" id="tpTime">0:00.0 / 0:00.0</span>
+        </div>
+      </div>
+      <div class="npane insp"><div class="hd">인스펙터</div><div class="bd" id="nInsp"></div></div>
+    </div>
+    <div class="ntl">
+      <div class="ntl-bar">
+        <button class="tbtn on" id="nSnap" title="스냅 (N)">🧲 스냅</button>
+        <span class="mut">|</span>
+        <button class="tbtn" id="zOut">−</button>
+        <input id="zoom" type="range" min="3" max="120" value="${PXPS}">
+        <button class="tbtn" id="zIn">＋</button>
+        <button class="tbtn" id="zFit">맞춤</button>
+        <span style="margin-left:auto" class="mut">클립 <span id="nCnt">0</span> · 합계 <span id="nTot">0:00</span> · <b class="mut">Space</b> 재생 <b class="mut">I/O/C</b> 인·아웃·컷 <b class="mut">⌫</b> 제외</span>
+      </div>
+      <div class="ntl-scroll" id="ntlScroll"><div class="ntl-inner" id="ntlInner">
+        <div class="nruler" id="nRuler"></div>
+        <div class="nlane" id="nLane"></div>
+        <div class="nskim" id="nSkim"></div>
+        <div class="nph" id="nPh"><div class="head" id="nPhHead"></div></div>
+      </div></div>
+      <div class="prog" id="edProgWrap" hidden style="margin:0"><i id="edProg"></i></div>
+    </div>
+  </div>`;
+  bindShell();
   const load=async fresh=>{
-    $('#edStat').textContent=fresh?'다시 분석 중… (오디오+넷ROI, 수십 초)':'후보 불러오는 중…';
+    $('#edStat').textContent=fresh?'다시 분석 중… (수십 초)':'불러오는 중…';
     try{plan=await api('/api/plan?game='+$('#edGame').value+(fresh?'&fresh=1':''));
-      clips=plan.clips.map(d=>({data:d,include:true}));
-      drawEdit();
-      if(plan.cached)$('#edStat').textContent+=' · 캐시됨(재분석은 "다시 감지")';}
+      clips=plan.clips.map(d=>({id:nextId++,data:d,include:true}));
+      hist=[];future=[];selId=clips.length?clips[0].id:null;playN=0;autoFit=true;
+      $('#edStat').textContent=plan.cached?'캐시 로드됨':'';
+      renderAll();seekSeq(0);}
     catch(e){$('#edStat').textContent='오류: '+e.message;}
   };
   $('#edLoad').onclick=()=>load(false);
   $('#edFresh').onclick=()=>load(true);
-  if(plan){$('#edGame').value=plan.game;drawEdit();}
-}
-
-function buildCard(c,i){
-  const d=c.data,segs=d.segments,two=segs.length>1;
-  const el=document.createElement('div');el.className='card clip'+(c.include?'':' excluded');el.tabIndex=0;
-  el.innerHTML=`
-    <div class="row"><b>골 <span class="t">${mmss(d.T)}</span></b>
-      <span class="mut">${two?`${camName(segs[0].cam)} → ${camName(segs[1].cam)}`:camName(segs[0].cam)}${d.goal_cam?` · 골쪽 ${camName(d.goal_cam)}`:''} · ~<span data-len>${round(segLen(c),1)}</span>s</span>
-      <label style="margin-left:auto"><input type="checkbox" ${c.include?'checked':''} data-inc> 포함</label>
-      <button class="btn sm" data-up ${i===0?'disabled':''}>▲</button>
-      <button class="btn sm" data-down ${i===clips.length-1?'disabled':''}>▼</button></div>
-    <video data-vid preload="metadata"></video>
-    <div class="tl" data-tl>
-      <canvas class="wave" data-wave></canvas>
-      <div class="blk b0" data-b0>${camName(segs[0].cam)}</div>
-      <div class="blk b1" data-b1>${two?camName(segs[1].cam):''}</div>
-      <div class="ph" data-ph></div>
-      <div class="hd hin" data-hd="in" title="인점 드래그"></div>
-      <div class="hd hcut" data-hd="cut" title="컷(앵글 전환) 드래그"></div>
-      <div class="hd hout" data-hd="out" title="아웃점 드래그"></div>
-    </div>
-    <div class="row" style="margin-top:6px">
-      <button class="btn sm" data-play>⏯ 구간 재생</button>
-      <span class="mut" data-time>0.0 / 0.0s</span>
-      <span class="mut" style="margin-left:auto">
-        in <input type="number" step="0.1" data-n="in" style="width:76px">
-        ${two?'컷 <input type="number" step="0.1" data-n="cut" style="width:76px">':''}
-        out <input type="number" step="0.1" data-n="out" style="width:76px"></span>
-    </div>`;
-  const q=s=>el.querySelector(s), vid=q('[data-vid]'), tl=q('[data-tl]');
-  // unified track coordinate u: seg0 source time; seg1 mapped via shift frozen at build,
-  // so handles/playhead stay put while values change. Domain (view window) also frozen.
-  const shift=two?(segs[1].src_in-segs[0].src_out):0;
-  const PAD=6;
-  const U0=Math.max(0,segs[0].src_in-PAD);
-  const U1=(two?segs[1].src_out-shift:segs[0].src_out)+PAD;
-  const X=u=>(u-U0)/(U1-U0)*tl.clientWidth;
-  const UofX=x=>U0+x/tl.clientWidth*(U1-U0);
-  const uIn=()=>segs[0].src_in, uCut=()=>segs[0].src_out, uOut=()=>two?segs[1].src_out-shift:segs[0].src_out;
-  let curSeg=0, playing=false;
-  function layout(){
-    const b0=q('[data-b0]'),b1=q('[data-b1]');
-    b0.style.left=X(uIn())+'px';b0.style.width=Math.max(0,X(uCut())-X(uIn()))+'px';
-    if(two){b1.style.display='';b1.style.left=X(uCut())+'px';b1.style.width=Math.max(0,X(uOut())-X(uCut()))+'px';}
-    else b1.style.display='none';
-    q('.hin').style.left=X(uIn())+'px';
-    q('.hcut').style.display=two?'':'none';if(two)q('.hcut').style.left=X(uCut())+'px';
-    q('.hout').style.left=X(uOut())+'px';
-    q('[data-n="in"]').value=round(uIn(),2);
-    const ci=q('[data-n="cut"]');if(ci)ci.value=round(uCut(),2);
-    q('[data-n="out"]').value=round(two?segs[1].src_out:segs[0].src_out,2);
-    q('[data-len]').textContent=round(segLen(c),1);
-  }
-  const srcOf=s=>'/media/'+encodeURIComponent(segs[s].src_rel);
-  function setSeg(s,t,thenPlay){
-    curSeg=s;
-    const apply=()=>{vid.currentTime=Math.max(0,t);if(thenPlay)vid.play();};
-    if(vid.dataset.seg!==String(s)){vid.dataset.seg=String(s);vid.src=srcOf(s);vid.onloadedmetadata=apply;}
-    else apply();
-  }
-  const uNow=()=>curSeg===0?vid.currentTime:vid.currentTime-shift;
-  function seekU(u,thenPlay){
-    u=Math.max(U0,Math.min(U1,u));
-    if(!two||u<uCut())setSeg(0,u,thenPlay);else setSeg(1,u+shift,thenPlay);
-  }
-  vid.addEventListener('timeupdate',()=>{
-    const u=uNow();
-    q('[data-ph]').style.left=X(Math.max(U0,Math.min(U1,u)))+'px';
-    q('[data-time]').textContent=`${round(Math.max(0,u-uIn()),1)} / ${round(uOut()-uIn(),1)}s`;
-    if(playing){
-      if(curSeg===0&&two&&vid.currentTime>=uCut()-0.03)setSeg(1,segs[1].src_in,true);
-      else if((curSeg===(two?1:0))&&vid.currentTime>=(two?segs[1].src_out:segs[0].src_out)){vid.pause();playing=false;}
-    }
-  });
-  q('[data-play]').onclick=()=>{
-    if(playing){vid.pause();playing=false;return;}
-    playing=true;
-    const u=uNow();
-    if(u<=uIn()+0.05||u>=uOut()-0.05)seekU(uIn(),true);
-    else if(vid.paused)vid.play();
-  };
-  // timeline: click/drag = seek, handles = trim (cut moves both sides in lockstep)
-  let drag=null;
-  tl.addEventListener('pointerdown',e=>{
-    const hd=e.target.dataset?e.target.dataset.hd:null;
-    tl.setPointerCapture(e.pointerId);
-    if(hd)drag={hd};
-    else{drag={hd:null};seekU(UofX(e.clientX-tl.getBoundingClientRect().left),false);}
-  });
-  tl.addEventListener('pointermove',e=>{
-    if(!drag)return;
-    const u=UofX(e.clientX-tl.getBoundingClientRect().left);
-    if(!drag.hd){seekU(u,false);return;}
-    if(drag.hd==='in')segs[0].src_in=Math.max(0,Math.min(uCut()-0.5,u));
-    else if(drag.hd==='out'){if(two)segs[1].src_out=Math.max(segs[1].src_in+0.5,u+shift);else segs[0].src_out=Math.max(segs[0].src_in+0.5,u);}
-    else if(drag.hd==='cut'&&two){
-      const nu=Math.max(uIn()+0.5,Math.min(uOut()-0.5,u));
-      const dt=nu-segs[0].src_out;
-      segs[0].src_out=nu;segs[1].src_in=Math.max(0,segs[1].src_in+dt);   // keep real-time alignment
-    }
-    layout();
-  });
-  const endDrag=()=>{if(drag&&drag.hd)updStats();drag=null;};
-  tl.addEventListener('pointerup',endDrag);tl.addEventListener('pointercancel',endDrag);
-  // number inputs (advanced): cut keeps alignment like the handle
-  q('[data-n="in"]').onchange=e=>{segs[0].src_in=Math.max(0,Math.min(uCut()-0.5,parseFloat(e.target.value)||0));layout();updStats();};
-  const ci=q('[data-n="cut"]');
-  if(ci)ci.onchange=e=>{const v=parseFloat(e.target.value)||0;const dt=v-segs[0].src_out;segs[0].src_out=v;segs[1].src_in=Math.max(0,segs[1].src_in+dt);layout();updStats();};
-  q('[data-n="out"]').onchange=e=>{const v=parseFloat(e.target.value)||0;if(two)segs[1].src_out=v;else segs[0].src_out=v;layout();updStats();};
-  // card interactions
-  q('[data-inc]').onchange=e=>{c.include=e.target.checked;el.classList.toggle('excluded',!c.include);updStats();};
-  q('[data-up]').onclick=()=>{[clips[i-1],clips[i]]=[clips[i],clips[i-1]];drawEdit();};
-  q('[data-down]').onclick=()=>{[clips[i+1],clips[i]]=[clips[i],clips[i+1]];drawEdit();};
-  el.addEventListener('pointerdown',()=>el.focus());
-  el.addEventListener('keydown',e=>{
-    if(e.target.tagName==='INPUT')return;
-    if(e.key===' '){e.preventDefault();q('[data-play]').click();}
-    else if(e.key==='i'||e.key==='I'){segs[0].src_in=Math.max(0,Math.min(uCut()-0.5,uNow()));layout();updStats();}
-    else if(e.key==='o'||e.key==='O'){if(two)segs[1].src_out=Math.max(segs[1].src_in+0.5,uNow()+shift);else segs[0].src_out=Math.max(segs[0].src_in+0.5,uNow());layout();updStats();}
-    else if((e.key==='c'||e.key==='C')&&two){const nu=Math.max(uIn()+0.5,Math.min(uOut()-0.5,uNow()));const dt=nu-segs[0].src_out;segs[0].src_out=nu;segs[1].src_in=Math.max(0,segs[1].src_in+dt);layout();updStats();}
-  });
-  async function drawWave(){
-    // cheer envelope behind the blocks — cut while SEEING the roar
-    const rel=plan.audio_rel&&plan.audio_rel[segs[0].cam];
-    if(!rel)return;
-    try{
-      const cnv=q('[data-wave]'),w=tl.clientWidth,h=tl.clientHeight;
-      cnv.width=w;cnv.height=h;
-      const r=await api(`/api/wave?path=${encodeURIComponent(rel)}&t0=${round(U0,2)}&t1=${round(U1,2)}&n=${Math.min(600,Math.max(120,Math.round(w/2)))}`);
-      const g=cnv.getContext('2d');g.clearRect(0,0,w,h);g.fillStyle='rgba(160,172,188,.55)';
-      const n=r.peaks.length,bw=w/n,mid=h/2;
-      r.peaks.forEach((p,i)=>{const bh=Math.max(1,p*(h-8));g.fillRect(i*bw,mid-bh/2,Math.max(1,bw-0.5),bh);});
-    }catch(e){}
-  }
-  requestAnimationFrame(()=>{layout();setSeg(0,uIn(),false);drawWave();});  // layout after insert (needs clientWidth)
-  return el;
-}
-
-function drawEdit(){
-  updStats();
-  const list=$('#edList');list.innerHTML='';
-  clips.forEach((c,i)=>list.appendChild(buildCard(c,i)));
-  const foot=document.createElement('div');foot.className='card';
-  foot.innerHTML=`<div class="row">
-    <button class="btn primary" id="edRender">포함 클립 렌더</button>
-    <label class="mut">출력 <input id="edOut" value="${window._edOut||'data/output/gui'}" style="width:150px"></label>
-    <label class="mut">BGM <input id="edBgm" placeholder="data/bgm.mp3 (선택)" value="${window._edBgm||''}" style="width:160px"></label>
-    <label class="mut">음량 <input id="edVol" type="range" min="0" max="0.5" step="0.05" value="${window._edVol||0.15}"></label>
-  </div>
-  <div class="prog" id="edProgWrap" hidden><i id="edProg"></i></div>
-  <div id="edRstat" class="mut" style="margin-top:6px"></div>`;
-  list.appendChild(foot);
   $('#edRender').onclick=startRender;
+  if(plan){$('#edGame').value=plan.game;renderAll();seekSeq(playN);}
 }
 
+/* ---- viewer / playback (webcut-style rAF clock, video drives time) ---- */
+const vid=()=>$('#nVid');
+function setSrc(rel,t,thenPlay){
+  const v=vid();switching=true;
+  const apply=()=>{v.currentTime=Math.max(0,t);switching=false;if(thenPlay)v.play();};
+  if(v.dataset.rel!==rel){v.dataset.rel=rel;v.src='/media/'+encodeURIComponent(rel);v.onloadedmetadata=apply;}
+  else apply();
+}
+function seekSeq(t){
+  stopPlay();playN=clamp(t,0,seqDur());
+  const m=locate(playN);if(!m){updatePh();return;}
+  curIdx=m.idx;curSeg=m.seg;setSrc(m.rel,m.src,false);updatePh();
+}
+function enter(idx,seg,thenPlay){
+  const sc=seqClips();curIdx=idx;curSeg=seg;
+  const g=sc[idx].data.segments[seg];
+  setSrc(g.src_rel,g.src_in,thenPlay);
+}
+function playTick(ts){
+  if(!playing)return;
+  const dt=(ts-lastTs)/1000;lastTs=ts;
+  const sc=seqClips();if(!sc.length)return stopPlay();
+  const v=vid();
+  if(!switching&&!v.seeking){   // a pending seek still reports the OLD time — don't cascade boundaries
+    const c=sc[curIdx],segs=c.data.segments,cur=v.currentTime;
+    if(cur>=segs[curSeg].src_out-0.03){
+      if(curSeg===0&&segs.length>1)enter(curIdx,1,true);
+      else if(curIdx+1<sc.length){enter(curIdx+1,0,true);playN=offsetOf(curIdx);}
+      else{stopPlay();playN=seqDur();updatePh();return;}
+    }else{
+      playN+=dt;
+      const u=curSeg===0?cur-segs[0].src_in:segDur(segs[0])+(cur-segs[1].src_in);
+      const real=offsetOf(curIdx)+clamp(u,0,clipDur(c));
+      if(Math.abs(real-playN)>0.15)playN=real;
+      playN=Math.min(playN,offsetOf(curIdx)+clipDur(c));
+    }
+  }
+  updatePh();rafId=requestAnimationFrame(playTick);
+}
+function startPlay(){
+  if(!seqClips().length)return;
+  if(playN>=seqDur()-0.05)seekSeq(0);
+  const m=locate(playN);curIdx=m.idx;curSeg=m.seg;
+  playing=true;lastTs=performance.now();$('#tpPlay').textContent='⏸';
+  setSrc(m.rel,m.src,true);rafId=requestAnimationFrame(playTick);
+}
+function stopPlay(){playing=false;if(rafId)cancelAnimationFrame(rafId);rafId=null;const v=vid();if(v)v.pause();const b=$('#tpPlay');if(b)b.textContent='▶';}
+function updatePh(){
+  const x=playN*PXPS;$('#nPh').style.transform=`translateX(${x}px)`;
+  $('#tpTime').textContent=`${fmtT(playN)} / ${fmtT(seqDur())}`;
+  if(playing){const sc=$('#ntlScroll');
+    if(x<sc.scrollLeft+40||x>sc.scrollLeft+sc.clientWidth-40)sc.scrollLeft=x-sc.clientWidth/2;}
+}
+const fmtT=s=>`${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}.${Math.floor((s%1)*10)}`;
+
+/* ---- timeline render ---- */
+function niceStep(){const t=[0.5,1,2,5,10,15,30,60,120,300];for(const s of t)if(s*PXPS>=70)return s;return 600;}
+function renderTimeline(){
+  const inner=$('#ntlInner'),ruler=$('#nRuler'),lane=$('#nLane');
+  const total=seqDur();
+  if(autoFit&&total>0){const w=$('#ntlScroll').clientWidth-30;PXPS=clamp(w/total,3,120);$('#zoom').value=Math.round(PXPS);}
+  inner.style.width=Math.max($('#ntlScroll').clientWidth,total*PXPS+60)+'px';
+  ruler.innerHTML='';
+  const step=niceStep();
+  for(let s=0,n=0;s<=Math.ceil(total)+step&&n<2000;s+=step,n++){
+    const t=document.createElement('div');t.className='tick';t.style.left=(s*PXPS)+'px';
+    t.textContent=fmtT(s).replace(/\.0$/,'');ruler.appendChild(t);
+  }
+  lane.innerHTML='';
+  const sc=seqClips();
+  if(!sc.length){lane.innerHTML='<div class="ntl-empty">포함된 클립이 없습니다 — 라이브러리에서 후보를 포함시키세요.</div>';}
+  let x=0;
+  sc.forEach((c,i)=>{
+    const d=clipDur(c),w=Math.max(16,d*PXPS-2),segs=c.data.segments,two=segs.length>1;
+    const d0px=segDur(segs[0])/d*w;
+    const el=document.createElement('div');
+    el.className='nclip'+(c.id===selId?' selected':'');
+    el.style.left=x+'px';el.style.width=w+'px';el.dataset.id=c.id;el.draggable=true;
+    el.innerHTML=`<canvas class="nwave"></canvas>
+      <div class="nseg s0" style="left:0;width:${d0px}px"></div>
+      ${two?`<div class="nseg s1" style="left:${d0px}px;right:0"></div><div class="ncut" style="left:${d0px}px"></div>`:''}
+      <div class="nlabel">골 ${mmss(c.data.T)} · ${round(d,1)}s${c.data.goal_cam?' · 🥅'+camName(c.data.goal_cam):''}</div>
+      <div class="ncams">${two?camName(segs[0].cam)+' → '+camName(segs[1].cam):camName(segs[0].cam)}</div>
+      <div class="trim l"></div><div class="trim r"></div>
+      <button class="ndel" title="제외 (⌫)">✕</button>`;
+    lane.appendChild(el);
+    bindClip(el,c);
+    ensureWave(c,el);
+    x+=d*PXPS;
+  });
+  $('#nCnt').textContent=sc.length;$('#nTot').textContent=fmtT(total);
+  playN=Math.min(playN,total);updatePh();
+}
+function renderAll(){renderTimeline();renderLib();renderInsp();updUndo();}
+
+/* ---- clip interactions: select / trim / cut / reorder / exclude ---- */
+let trimming=false;
+function bindClip(el,c){
+  const segs=c.data.segments,two=segs.length>1;
+  el.addEventListener('mousedown',ev=>{
+    if(ev.target.matches('.trim,.ncut,.ndel'))return;
+    selId=c.id;renderAll();
+  });
+  el.querySelector('.ndel').onclick=ev=>{ev.stopPropagation();pushHist();c.include=false;fixSel();renderAll();};
+  const drag=(handle,apply)=>{
+    handle.addEventListener('mousedown',ev=>{
+      ev.preventDefault();ev.stopPropagation();selId=c.id;
+      pushHist();trimming=true;
+      const x0=ev.clientX,o=JSON.parse(JSON.stringify(segs));
+      const mv=e=>{apply((e.clientX-x0)/PXPS,o);renderTimeline();renderInsp();};
+      const up=()=>{trimming=false;window.removeEventListener('mousemove',mv);window.removeEventListener('mouseup',up);renderAll();};
+      window.addEventListener('mousemove',mv);window.addEventListener('mouseup',up);
+    });
+  };
+  drag(el.querySelector('.trim.l'),(dt,o)=>{segs[0].src_in=clamp(o[0].src_in+dt,0,segs[0].src_out-0.5);});
+  drag(el.querySelector('.trim.r'),(dt,o)=>{const g=segs[segs.length-1],og=o[o.length-1];g.src_out=Math.max(g.src_in+0.5,og.src_out+dt);});
+  const cut=el.querySelector('.ncut');
+  if(cut)drag(cut,(dt,o)=>{ // move the angle switch: both cams in lockstep
+    const nv=clamp(o[0].src_out+dt,segs[0].src_in+0.5,o[0].src_out+(o[1].src_out-o[1].src_in)-0.5);
+    const d=nv-o[0].src_out;segs[0].src_out=nv;segs[1].src_in=Math.max(0,o[1].src_in+d);
+  });
+  el.addEventListener('dragstart',()=>{selId=c.id;});
+  el.addEventListener('dragover',ev=>ev.preventDefault());
+  el.addEventListener('drop',ev=>{
+    ev.preventDefault();
+    const from=clips.findIndex(k=>k.id===selId),to=clips.findIndex(k=>k.id===c.id);
+    if(from<0||to<0||from===to)return;
+    pushHist();const[m]=clips.splice(from,1);clips.splice(to,0,m);renderAll();
+  });
+  el.addEventListener('dblclick',()=>{seekSeq(offsetOf(seqClips().indexOf(c)));startPlay();});
+}
+
+/* ---- waveform inside clip blocks ---- */
+async function ensureWave(c,el){
+  if(!plan||!plan.audio_rel)return;
+  const segs=c.data.segments;
+  const key=JSON.stringify(segs.map(g=>[g.cam,round(g.src_in,1),round(g.src_out,1)]));
+  const cnv=el.querySelector('.nwave');
+  const draw=()=>{
+    if(!c._wave)return;
+    const w=el.clientWidth,h=el.clientHeight;if(!w)return;
+    cnv.width=w;cnv.height=h;
+    const g=cnv.getContext('2d');g.clearRect(0,0,w,h);g.fillStyle='rgba(160,172,188,.5)';
+    const total=clipDur(c);let x=0;
+    segs.forEach((sg,si)=>{
+      const pk=c._wave[si];if(!pk){x+=segDur(sg)/total*w;return;}
+      const segW=segDur(sg)/total*w,bw=segW/pk.length,mid=h/2;
+      pk.forEach((p,i)=>{const bh=Math.max(1,p*(h-14));g.fillRect(x+i*bw,mid-bh/2,Math.max(1,bw-0.4),bh);});
+      x+=segW;
+    });
+  };
+  if(c._wkey===key&&c._wave){draw();return;}
+  if(trimming){draw();return;}   // don't refetch mid-drag; redraw stale cache
+  try{
+    const parts=[];
+    for(const sg of segs){
+      const rel=plan.audio_rel[sg.cam];
+      if(!rel){parts.push(null);continue;}
+      const n=clamp(Math.round(segDur(sg)*12),40,800);
+      const r=await api(`/api/wave?path=${encodeURIComponent(rel)}&t0=${round(sg.src_in,2)}&t1=${round(sg.src_out,2)}&n=${n}`);
+      parts.push(r.peaks);
+    }
+    c._wave=parts;c._wkey=key;draw();
+  }catch(e){}
+}
+
+/* ---- library / inspector ---- */
+function renderLib(){
+  const lib=$('#nLib');lib.innerHTML='';
+  $('#libN').textContent=`${clips.filter(c=>c.include).length}/${clips.length}`;
+  clips.forEach(c=>{
+    const d=c.data,el=document.createElement('div');
+    el.className='lib-item'+(c.id===selId?' sel':'')+(c.include?'':' off');
+    el.innerHTML=`<span class="t">골 ${mmss(d.T)}</span>
+      <span class="mut">${d.segments.length>1?camName(d.segments[0].cam)+'→'+camName(d.segments[1].cam):camName(d.segments[0].cam)} · ${round(clipDur(c),1)}s</span>
+      <button class="tbtn" data-tog>${c.include?'제외':'포함'}</button>`;
+    el.onclick=e=>{
+      if(e.target.dataset&&'tog'in e.target.dataset){pushHist();c.include=!c.include;fixSel();renderAll();return;}
+      selId=c.id;renderAll();
+      if(c.include)seekSeq(offsetOf(seqClips().indexOf(c)));
+    };
+    lib.appendChild(el);
+  });
+}
+function renderInsp(){
+  const box=$('#nInsp'),c=selClip();
+  if(!c){box.innerHTML='<div class="mut" style="padding:10px;font-size:12px">클립을 선택하세요</div>';return;}
+  const segs=c.data.segments,two=segs.length>1;
+  box.innerHTML=`
+    <div class="sec"><div class="lbl">선택한 골</div>
+      <div class="kv"><b>골 ${mmss(c.data.T)}</b><span class="mut">peak ${round(c.data.peak,1)}${c.data.goal_cam?' · 골쪽 '+camName(c.data.goal_cam):''}</span></div>
+      <div class="kv mut">${two?camName(segs[0].cam)+' → '+camName(segs[1].cam):camName(segs[0].cam)} · ${round(clipDur(c),1)}s</div>
+    </div>
+    <div class="sec"><div class="lbl">컷 지점 (초 · 소스 타임)</div>
+      <div class="kv">in <input type="number" step="0.1" data-n="in" value="${round(segs[0].src_in,2)}">
+        <button class="tbtn" data-set="in" title="재생점을 인으로 (I)">=재생점</button></div>
+      ${two?`<div class="kv">컷 <input type="number" step="0.1" data-n="cut" value="${round(segs[0].src_out,2)}">
+        <button class="tbtn" data-set="cut" title="재생점을 컷으로 (C)">=재생점</button></div>`:''}
+      <div class="kv">out <input type="number" step="0.1" data-n="out" value="${round(segs[segs.length-1].src_out,2)}">
+        <button class="tbtn" data-set="out" title="재생점을 아웃으로 (O)">=재생점</button></div>
+    </div>
+    <div class="sec">
+      <button class="btn" data-act="play">▶ 이 클립 재생</button>
+      <button class="btn half" data-act="tog">${c.include?'✕ 제외':'＋ 포함'}</button>
+      <button class="btn half" data-act="dup" title="같은 골을 한 번 더">복제</button>
+    </div>`;
+  const apply=f=>{pushHist();f();renderAll();};
+  box.querySelector('[data-n="in"]').onchange=e=>apply(()=>{segs[0].src_in=clamp(parseFloat(e.target.value)||0,0,segs[0].src_out-0.5);});
+  const ci=box.querySelector('[data-n="cut"]');
+  if(ci)ci.onchange=e=>apply(()=>{const v=parseFloat(e.target.value)||0,d=v-segs[0].src_out;segs[0].src_out=v;segs[1].src_in=Math.max(0,segs[1].src_in+d);});
+  box.querySelector('[data-n="out"]').onchange=e=>apply(()=>{const g=segs[segs.length-1];g.src_out=Math.max(g.src_in+0.5,parseFloat(e.target.value)||0);});
+  box.querySelectorAll('[data-set]').forEach(b=>b.onclick=()=>setAtPlayhead(b.dataset.set));
+  box.querySelector('[data-act="play"]').onclick=()=>{if(!c.include)return;seekSeq(offsetOf(seqClips().indexOf(c)));startPlay();};
+  box.querySelector('[data-act="tog"]').onclick=()=>apply(()=>{c.include=!c.include;});
+  box.querySelector('[data-act="dup"]').onclick=()=>apply(()=>{
+    const i=clips.indexOf(c);
+    clips.splice(i+1,0,{id:nextId++,include:true,data:JSON.parse(JSON.stringify(c.data))});
+  });
+}
+function setAtPlayhead(which){
+  const m=locate(playN);if(!m)return;
+  const c=m.clip;selId=c.id;const segs=c.data.segments;
+  pushHist();
+  if(which==='in'&&m.seg===0)segs[0].src_in=clamp(m.src,0,segs[0].src_out-0.5);
+  else if(which==='out'){const g=segs[segs.length-1];if(m.seg===segs.length-1)g.src_out=Math.max(g.src_in+0.5,m.src);}
+  else if(which==='cut'&&segs.length>1){
+    const u=m.seg===0?m.src-segs[0].src_in:segDur(segs[0])+(m.src-segs[1].src_in);
+    const nv=clamp(segs[0].src_in+u,segs[0].src_in+0.5,segs[0].src_out+segDur(segs[1])-0.5);
+    const d=nv-segs[0].src_out;segs[0].src_out=nv;segs[1].src_in=Math.max(0,segs[1].src_in+d);
+  }
+  renderAll();
+}
+
+/* ---- shell bindings: transport, ruler, skim, zoom, keys ---- */
+function bindShell(){
+  $('#tpPlay').onclick=()=>playing?stopPlay():startPlay();
+  $('#tpStart').onclick=()=>seekSeq(0);
+  $('#tpEnd').onclick=()=>seekSeq(seqDur());
+  $('#tpPrev').onclick=()=>{const p=editPoints();for(let i=p.length-1;i>=0;i--)if(p[i]<playN-0.01)return seekSeq(p[i]);seekSeq(0);};
+  $('#tpNext').onclick=()=>{for(const p of editPoints())if(p>playN+0.01)return seekSeq(p);};
+  const snapT=t=>{
+    if(!snapOn)return t;
+    let best=t,bpx=8;
+    for(const p of editPoints()){const d=Math.abs(p-t)*PXPS;if(d<bpx){bpx=d;best=p;}}
+    return best;
+  };
+  const rulerT=cx=>{const r=$('#ntlInner').getBoundingClientRect();return clamp((cx-r.left)/PXPS,0,seqDur());};
+  let phDrag=false;
+  $('#nRuler').addEventListener('mousedown',e=>{phDrag=true;seekSeq(snapT(rulerT(e.clientX)));});
+  $('#nPhHead').addEventListener('mousedown',e=>{e.stopPropagation();phDrag=true;});
+  window.addEventListener('mousemove',e=>{if(phDrag)seekSeq(snapT(rulerT(e.clientX)));});
+  window.addEventListener('mouseup',()=>phDrag=false);
+  // skimming: hover over the ruler area scrubs lightly (no state change)
+  $('#ntlScroll').addEventListener('mousemove',e=>{
+    if(phDrag||trimming||playing)return void($('#nSkim').style.display='none');
+    const t=rulerT(e.clientX);$('#nSkim').style.display='block';$('#nSkim').style.left=(t*PXPS)+'px';
+  });
+  $('#ntlScroll').addEventListener('mouseleave',()=>$('#nSkim').style.display='none');
+  $('#nSnap').onclick=()=>{snapOn=!snapOn;$('#nSnap').classList.toggle('on',snapOn);};
+  const applyZoom=v=>{PXPS=clamp(v,3,120);$('#zoom').value=Math.round(PXPS);renderTimeline();};
+  $('#zoom').oninput=e=>{autoFit=false;applyZoom(+e.target.value);};
+  $('#zIn').onclick=()=>{autoFit=false;applyZoom(PXPS*1.3);};
+  $('#zOut').onclick=()=>{autoFit=false;applyZoom(PXPS/1.3);};
+  $('#zFit').onclick=()=>{autoFit=true;renderTimeline();};
+  $('#ntlScroll').addEventListener('wheel',e=>{     // pinch-zoom at cursor (webcut)
+    if(!e.ctrlKey)return;e.preventDefault();
+    const sc=$('#ntlScroll'),sx=e.clientX-sc.getBoundingClientRect().left;
+    const tAt=(sc.scrollLeft+sx)/PXPS;autoFit=false;
+    applyZoom(PXPS*Math.exp(-e.deltaY*0.01));
+    sc.scrollLeft=Math.max(0,tAt*PXPS-sx);
+  },{passive:false});
+  $('#nUndo').onclick=undo;$('#nRedo').onclick=redo;
+  window.onkeydown=e=>{
+    if(!$('#edit')||$('#edit').hidden||e.target.tagName==='INPUT'||e.target.tagName==='SELECT')return;
+    const meta=e.metaKey||e.ctrlKey;
+    if(meta&&(e.key==='z'||e.key==='Z')){e.preventDefault();e.shiftKey?redo():undo();return;}
+    switch(e.key){
+      case ' ':e.preventDefault();playing?stopPlay():startPlay();break;
+      case 'i':case 'I':setAtPlayhead('in');break;
+      case 'o':case 'O':setAtPlayhead('out');break;
+      case 'c':case 'C':setAtPlayhead('cut');break;
+      case 'n':case 'N':$('#nSnap').click();break;
+      case 'ArrowLeft':e.preventDefault();seekSeq(playN-(e.shiftKey?1:1/30));break;
+      case 'ArrowRight':e.preventDefault();seekSeq(playN+(e.shiftKey?1:1/30));break;
+      case 'ArrowUp':e.preventDefault();$('#tpPrev').click();break;
+      case 'ArrowDown':e.preventDefault();$('#tpNext').click();break;
+      case 'Backspace':case 'Delete':{const c=selClip();if(c){pushHist();c.include=false;fixSel();renderAll();}break;}
+    }
+  };
+}
+
+/* ---- render job ---- */
 async function startRender(){
   window._edOut=$('#edOut').value;window._edBgm=$('#edBgm').value;window._edVol=$('#edVol').value;
-  const out={...plan,clips:clips.filter(c=>c.include).map(c=>c.data)};
+  const out={...plan,clips:seqClips().map(c=>c.data)};
   if(!out.clips.length){$('#edRstat').textContent='포함된 클립이 없습니다';return;}
   $('#edProgWrap').hidden=false;$('#edProg').style.width='0%';$('#edRstat').textContent='렌더 시작…';
   try{
@@ -352,11 +628,11 @@ async function startRender(){
         const s=await api('/api/render_status?job='+r.job);
         if(s.status==='running'){const[i,n]=s.progress||[0,1];
           $('#edProg').style.width=Math.round(i/Math.max(1,n)*100)+'%';
-          $('#edRstat').textContent=i>=n?`합본·BGM 처리 중… (${n}클립 완료)`:`렌더 중… ${i}/${n} 클립`;
+          $('#edRstat').textContent=i>=n?`합본·BGM 처리 중…`:`렌더 ${i}/${n}`;
           setTimeout(poll,1000);}
         else if(s.status==='done'){$('#edProg').style.width='100%';
-          $('#edRstat').innerHTML=`✓ 완료: ${s.clips.length}클립 + highlight_all.mp4 → <code>${window._edOut}</code>`;}
-        else $('#edRstat').textContent='렌더 오류: '+(s.error||'unknown');
+          $('#edRstat').textContent=`✓ ${s.clips.length}클립 + 합본 → ${window._edOut}`;}
+        else $('#edRstat').textContent='오류: '+(s.error||'unknown');
       }catch(e){$('#edRstat').textContent='상태 조회 실패: '+e.message;}
     };
     poll();

@@ -107,25 +107,35 @@ async function renderCal(){
   window.drawCal=()=>{ctx.clearRect(0,0,cv.width,cv.height);
     if(calImg)ctx.drawImage(calImg,0,0,cv.width,cv.height);
     if(calBox){ctx.strokeStyle='#37d67a';ctx.lineWidth=2;ctx.strokeRect(calBox.x,calBox.y,calBox.w,calBox.h);ctx.fillStyle='rgba(55,214,122,.15)';ctx.fillRect(calBox.x,calBox.y,calBox.w,calBox.h);}};
+  let calReq=0, calShownKey=null;   // token to discard stale loads + key of the frame ACTUALLY shown
   const grab=()=>{
-    const cam=$('#calCam').value,t=$('#calT').value;
-    calImg=null; calBox=null; calMsg('프레임 불러오는 중… (원본이 커서 몇 초 걸릴 수 있어요)','#8b95a3');
+    const myReq=++calReq;
+    const cam=$('#calCam').value, key=curKey(), t=$('#calT').value;   // capture key at request time
+    calImg=null; calBox=null; calShownKey=null;
+    calMsg('프레임 불러오는 중… (원본이 커서 몇 초 걸릴 수 있어요)','#8b95a3');
     const im=new Image();
-    im.onload=()=>{calImg=im;const w=Math.min(720,im.naturalWidth);cv.width=w;cv.height=Math.round(im.naturalHeight*w/im.naturalWidth);restoreBox();drawCal();updStat();};
-    im.onerror=()=>{calImg=null;calMsg('프레임 로드 실패 — 서버가 켜져 있는지 확인하세요 (gui/server.py)','#ff6b6b');};
+    im.onload=()=>{ if(myReq!==calReq) return;   // a newer switch happened -> ignore this stale frame
+      calImg=im; calShownKey=key;
+      const w=Math.min(720,im.naturalWidth); cv.width=w; cv.height=Math.round(im.naturalHeight*w/im.naturalWidth);
+      const v=rois[key]; calBox=v?{x:v[0]*cv.width,y:v[1]*cv.height,w:v[2]*cv.width,h:v[3]*cv.height}:null;  // restore THIS key's box
+      drawCal(); updStat();
+    };
+    im.onerror=()=>{ if(myReq!==calReq) return; calImg=null; calMsg('프레임 로드 실패 — 서버가 켜져 있는지 확인하세요 (gui/server.py)','#ff6b6b'); };
     im.src=`/api/frame?path=${encodeURIComponent(cam)}&t=${t}`;
   };
   fillCams();
   $('#calKey').value=keyGuess($('#calCam').value);
   $('#calCam').onchange=()=>{$('#calKey').value=keyGuess($('#calCam').value);grab();};
-  $('#calKey').oninput=()=>{restoreBox();drawCal();updStat();};
+  $('#calKey').oninput=()=>{if(calImg)calShownKey=curKey();restoreBox();drawCal();updStat();};
   $('#calGrab').onclick=grab;
   const pos=e=>{const r=cv.getBoundingClientRect();return{x:(e.clientX-r.left)*cv.width/r.width,y:(e.clientY-r.top)*cv.height/r.height};};
   cv.onmousedown=e=>{if(calImg){const p=pos(e);calDrag={x0:p.x,y0:p.y};}};
   cv.onmousemove=e=>{if(!calDrag)return;const p=pos(e);calBox={x:Math.min(calDrag.x0,p.x),y:Math.min(calDrag.y0,p.y),w:Math.abs(p.x-calDrag.x0),h:Math.abs(p.y-calDrag.y0)};drawCal();};
   window.onmouseup=()=>{
-    if(calDrag&&calBox&&calBox.w>6&&calBox.h>6){const k=curKey();
-      if(k){rois[k]=[round(calBox.x/cv.width,4),round(calBox.y/cv.height,4),round(calBox.w/cv.width,4),round(calBox.h/cv.height,4)];calTbl();fillCams();updStat();}}
+    // save to the key of the frame ACTUALLY on screen, never a stale #calKey
+    if(calDrag&&calBox&&calBox.w>6&&calBox.h>6&&calShownKey){
+      rois[calShownKey]=[round(calBox.x/cv.width,4),round(calBox.y/cv.height,4),round(calBox.w/cv.width,4),round(calBox.h/cv.height,4)];
+      calTbl();fillCams();updStat();}
     calDrag=null;
   };
   window.calTbl=()=>{const t=$('#calTbl');

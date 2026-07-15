@@ -92,6 +92,16 @@ def render_clip(clip, fps, crossfade_sec, work_dir, out_path, width, height, var
         _ffmpeg(["-i", seg_paths[0], "-c", "copy", out_path])
         return out_path
 
+    if crossfade_sec <= 0.01:
+        # hard cut: segments share codec/canvas, so a re-encode concat is enough
+        listfile = os.path.join(work_dir, "segs.txt")
+        with open(listfile, "w") as f:
+            for p in seg_paths:
+                f.write(f"file '{os.path.abspath(p)}'\n")
+        _ffmpeg(["-f", "concat", "-safe", "0", "-i", listfile,
+                 *vargs, "-c:a", "aac", out_path])
+        return out_path
+
     first, second = seg_paths[0], seg_paths[1]
     d1 = probe_duration(first)
     off = max(0.0, d1 - crossfade_sec)

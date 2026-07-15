@@ -4,9 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>autoPitch 스튜디오</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
   :root{--bg:#0f1216;--panel:#191f27;--line:#2a323d;--fg:#e7ebf0;--mut:#8b95a3;--accent:#4ea1ff;--ok:#37d67a;--drop:#ff6b6b;}
-  *{box-sizing:border-box;} body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 -apple-system,Segoe UI,Roboto,sans-serif;}
+  *{box-sizing:border-box;} body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 'Noto Sans KR',-apple-system,Segoe UI,Roboto,sans-serif;}
+  button,input,select{font-family:inherit;}
   header{background:var(--panel);border-bottom:1px solid var(--line);padding:10px 16px;display:flex;gap:8px;align-items:center;}
   header h1{font-size:15px;margin:0 14px 0 0;}
   .tab{background:none;border:none;color:var(--mut);padding:8px 12px;cursor:pointer;border-radius:7px;font-size:13px;}
@@ -270,11 +274,12 @@ async function renderEdit(){
       <input id="edOut" value="${window._edOut||'data/output/gui'}" style="width:140px" title="출력 폴더">
       <input id="edBgm" placeholder="BGM (선택)" value="${window._edBgm||''}" style="width:120px">
       <input id="edVol" type="range" min="0" max="0.5" step="0.05" value="${window._edVol||0.15}" style="width:70px" title="BGM 음량">
+      <label class="mut" style="font-size:12px">전환(초) <input id="edXf" type="number" step="0.1" min="0" style="width:56px" title="앵글 전환 크로스페이드 (0 = 하드컷)"></label>
       <button class="btn primary" id="edRender">렌더</button>
       <span id="edRstat" class="mut" style="font-size:12px"></span>
     </div>
     <div class="nle-top">
-      <div class="npane"><div class="hd">라이브러리 — 골 후보 <span id="libN"></span></div><div class="bd" id="nLib"></div></div>
+      <div class="npane"><div class="hd">라이브러리 — 하이라이트 <span id="libN"></span></div><div class="bd" id="nLib"></div></div>
       <div class="npane viewer">
         <video id="nVid" preload="metadata" playsinline></video>
         <div class="transport">
@@ -314,6 +319,8 @@ async function renderEdit(){
       clips=plan.clips.map(d=>({id:nextId++,data:d,include:true}));
       hist=[];future=[];selId=clips.length?clips[0].id:null;playN=0;autoFit=true;
       $('#edStat').textContent=plan.cached?'캐시 로드됨':'';
+      $('#edXf').value=plan.crossfade_sec;
+      $('#edXf').onchange=e=>{plan.crossfade_sec=Math.max(0,parseFloat(e.target.value)||0);renderTimeline();};
       renderAll();seekSeq(0);}
     catch(e){$('#edStat').textContent='오류: '+e.message;}
   };
@@ -393,7 +400,7 @@ function renderTimeline(){
   }
   lane.innerHTML='';
   const sc=seqClips();
-  if(!sc.length){lane.innerHTML='<div class="ntl-empty">포함된 클립이 없습니다 — 라이브러리에서 후보를 포함시키세요.</div>';}
+  if(!sc.length){lane.innerHTML='<div class="ntl-empty">포함된 하이라이트가 없습니다 — 라이브러리에서 포함시키세요.</div>';}
   let x=0;
   sc.forEach((c,i)=>{
     const d=clipDur(c),w=Math.max(16,d*PXPS-2),segs=c.data.segments,two=segs.length>1;
@@ -403,8 +410,8 @@ function renderTimeline(){
     el.style.left=x+'px';el.style.width=w+'px';el.dataset.id=c.id;el.draggable=true;
     el.innerHTML=`<canvas class="nwave"></canvas>
       <div class="nseg s0" style="left:0;width:${d0px}px"></div>
-      ${two?`<div class="nseg s1" style="left:${d0px}px;right:0"></div><div class="ncut" style="left:${d0px}px"></div>`:''}
-      <div class="nlabel">골 ${mmss(c.data.T)} · ${round(d,1)}s${c.data.goal_cam?' · 🥅'+camName(c.data.goal_cam):''}</div>
+      ${two?`<div class="nseg s1" style="left:${d0px}px;right:0"></div><div class="ncut" style="left:${d0px}px" title="앵글 전환 — 크로스페이드 ${plan.crossfade_sec>0?plan.crossfade_sec+'s':'없음(하드컷)'}"></div>`:''}
+      <div class="nlabel">${mmss(c.data.T)} · ${round(d,1)}s${c.data.goal_cam?' · 🥅'+camName(c.data.goal_cam):''}</div>
       <div class="ncams">${two?camName(segs[0].cam)+' → '+camName(segs[1].cam):camName(segs[0].cam)}</div>
       <div class="trim l"></div><div class="trim r"></div>
       <button class="ndel" title="제외 (⌫)">✕</button>`;
@@ -496,7 +503,7 @@ function renderLib(){
   clips.forEach(c=>{
     const d=c.data,el=document.createElement('div');
     el.className='lib-item'+(c.id===selId?' sel':'')+(c.include?'':' off');
-    el.innerHTML=`<span class="t">골 ${mmss(d.T)}</span>
+    el.innerHTML=`<span class="t">${mmss(d.T)}</span>
       <span class="mut">${d.segments.length>1?camName(d.segments[0].cam)+'→'+camName(d.segments[1].cam):camName(d.segments[0].cam)} · ${round(clipDur(c),1)}s</span>
       <button class="tbtn" data-tog>${c.include?'제외':'포함'}</button>`;
     el.onclick=e=>{
@@ -507,15 +514,40 @@ function renderLib(){
     lib.appendChild(el);
   });
 }
+/* ---- angle configuration: single-cam or either two-cam order ----
+   All cams share one real-time axis via plan.offsets (camA-time = src - offset),
+   so segments can be rebuilt for any cam order without losing the moment. */
+function camMap(){
+  const m={};
+  clips.forEach(c=>c.data.segments.forEach(g=>{m[g.cam]={src:g.src,src_rel:g.src_rel};}));
+  return m;
+}
+function currentOrder(c){return c.data.segments.map(g=>g.cam);}
+function setAngles(c,order){
+  const off=cam=>(plan.offsets&&plan.offsets[cam])||0;
+  const m=camMap(),segs=c.data.segments;
+  const t0=segs[0].src_in-off(segs[0].cam);
+  const te=segs[segs.length-1].src_out-off(segs[segs.length-1].cam);
+  // keep the existing switch point; when coming FROM single-cam, default to T+2s
+  let tc=segs.length>1?segs[0].src_out-off(segs[0].cam):clamp(c.data.T+2,t0+0.5,te-0.5);
+  tc=clamp(tc,t0+0.5,te-0.5);
+  const mk=(cam,a,b)=>({cam,src:m[cam].src,src_rel:m[cam].src_rel,
+                        src_in:Math.max(0,a+off(cam)),src_out:b+off(cam)});
+  c.data.segments=order.length===1?[mk(order[0],t0,te)]:[mk(order[0],t0,tc),mk(order[1],tc,te)];
+  c._wave=null;c._wkey=null;   // waveform must refetch for the new cams
+}
+
 function renderInsp(){
   const box=$('#nInsp'),c=selClip();
   if(!c){box.innerHTML='<div class="mut" style="padding:10px;font-size:12px">클립을 선택하세요</div>';return;}
   const segs=c.data.segments,two=segs.length>1;
   box.innerHTML=`
-    <div class="sec"><div class="lbl">선택한 골</div>
-      <div class="kv"><b>골 ${mmss(c.data.T)}</b><span class="mut">peak ${round(c.data.peak,1)}${c.data.goal_cam?' · 골쪽 '+camName(c.data.goal_cam):''}</span></div>
+    <div class="sec"><div class="lbl">선택한 하이라이트</div>
+      <div class="kv"><b>${mmss(c.data.T)}</b><span class="mut">peak ${round(c.data.peak,1)}${c.data.goal_cam?' · 골쪽 '+camName(c.data.goal_cam):''}</span></div>
       <div class="kv mut">${two?camName(segs[0].cam)+' → '+camName(segs[1].cam):camName(segs[0].cam)} · ${round(clipDur(c),1)}s</div>
     </div>
+    <div class="sec"><div class="lbl">앵글 구성</div><div class="kv" id="angRow"></div>
+      <div class="kv mut" style="font-size:11px">전환 시점은 타임라인의 초록 핸들로 조정</div></div>
     <div class="sec"><div class="lbl">컷 지점 (초 · 소스 타임)</div>
       <div class="kv">in <input type="number" step="0.1" data-n="in" value="${round(segs[0].src_in,2)}">
         <button class="tbtn" data-set="in" title="재생점을 인으로 (I)">=재생점</button></div>
@@ -525,11 +557,19 @@ function renderInsp(){
         <button class="tbtn" data-set="out" title="재생점을 아웃으로 (O)">=재생점</button></div>
     </div>
     <div class="sec">
-      <button class="btn" data-act="play">▶ 이 클립 재생</button>
+      <button class="btn" data-act="play">▶ 이 하이라이트 재생</button>
       <button class="btn half" data-act="tog">${c.include?'✕ 제외':'＋ 포함'}</button>
-      <button class="btn half" data-act="dup" title="같은 골을 한 번 더">복제</button>
+      <button class="btn half" data-act="dup" title="같은 하이라이트를 한 번 더">복제</button>
     </div>`;
   const apply=f=>{pushHist();f();renderAll();};
+  // angle buttons: each cam solo + both two-cam orders; active config highlighted
+  const ang=box.querySelector('#angRow'),cams=Object.keys(camMap()),cur=currentOrder(c).join('→');
+  const orders=[...cams.map(x=>[x]),...(cams.length>1?cams.flatMap(x=>cams.filter(y=>y!==x).map(y=>[x,y])):[])];
+  ang.innerHTML=orders.map(o=>{
+    const label=o.length===1?camName(o[0])+'만':camName(o[0])+'→'+camName(o[1]);
+    return `<button class="tbtn${o.join('→')===cur?' on':''}" data-ang="${o.join(',')}">${label}</button>`;
+  }).join('');
+  ang.querySelectorAll('[data-ang]').forEach(b=>b.onclick=()=>apply(()=>setAngles(c,b.dataset.ang.split(','))));
   box.querySelector('[data-n="in"]').onchange=e=>apply(()=>{segs[0].src_in=clamp(parseFloat(e.target.value)||0,0,segs[0].src_out-0.5);});
   const ci=box.querySelector('[data-n="cut"]');
   if(ci)ci.onchange=e=>apply(()=>{const v=parseFloat(e.target.value)||0,d=v-segs[0].src_out;segs[0].src_out=v;segs[1].src_in=Math.max(0,segs[1].src_in+d);});
@@ -617,7 +657,7 @@ function bindShell(){
 /* ---- render job ---- */
 async function startRender(){
   window._edOut=$('#edOut').value;window._edBgm=$('#edBgm').value;window._edVol=$('#edVol').value;
-  const out={...plan,clips:seqClips().map(c=>c.data)};
+  const out={...plan,crossfade_sec:Math.max(0,parseFloat($('#edXf').value)||0),clips:seqClips().map(c=>c.data)};
   if(!out.clips.length){$('#edRstat').textContent='포함된 클립이 없습니다';return;}
   $('#edProgWrap').hidden=false;$('#edProg').style.width='0%';$('#edRstat').textContent='렌더 시작…';
   try{

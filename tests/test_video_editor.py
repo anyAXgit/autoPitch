@@ -109,6 +109,33 @@ def test_render_multicam_clip(tmp_path):
     assert 7.0 <= probe_duration(paths[0]) <= 19
 
 
+def test_render_hard_cut_when_crossfade_zero(tmp_path):
+    # crossfade_sec = 0 -> the angle switch is a HARD CUT (concat, no xfade):
+    # output duration equals the full sum of segment lengths (no overlap eaten).
+    raw = tmp_path / "raw"
+    make_dummy_set(str(raw), [
+        {"name": "camA", "color": "red", "offset": 0.0, "bursts": [(30, 32, 10)]},
+        {"name": "camB", "color": "green", "offset": 0.0, "bursts": [(30, 34, 18)]},
+    ], duration=55.0)
+    res = preprocess_all(str(raw), str(tmp_path / "tv"), str(tmp_path / "ta"),
+                         fps=30, width=320, height=180)
+    import yaml
+    p = tmp_path / "config.yaml"
+    p.write_text(yaml.safe_dump({
+        "build_up_sec": 5, "min_len_sec": 8, "max_len_sec": 18,
+        "crossfade_sec": 0.0, "peak": {"min_gap_sec": 5, "threshold_k": 2.0},
+    }))
+    cfg = load_config(str(p))
+    offsets = compute_offsets(res["audio"], "camA")
+    peaks = detect_peaks(res["audio"]["camA"], cfg)
+    plan = build_plan(res, offsets, peaks, "camA", cfg)
+    clip = plan["clips"][0]
+    assert len(clip["segments"]) == 2
+    paths = render_plan(plan, str(tmp_path / "out"))
+    span = sum(s["src_out"] - s["src_in"] for s in clip["segments"])
+    assert abs(probe_duration(paths[0]) - span) < 0.5   # no crossfade overlap removed
+
+
 def test_render_plan_mixes_bgm(tmp_path):
     # Rendering with a bgm file mixes music UNDER the highlight (video + audio
     # preserved, duration unchanged -- bgm is looped/ducked, not appended).

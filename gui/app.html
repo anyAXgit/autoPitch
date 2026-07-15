@@ -82,45 +82,60 @@ let calImg=null, calBox=null, calDrag=null, rois={};
 async function renderCal(){
   rois=await api('/api/rois').catch(()=>({}));
   const cams=[...new Set(STATE.games.flatMap(g=>[g.cam1,g.cam2]))];
+  const keyGuess=p=>{const n=p.split('/').pop(); return (n.match(/^[A-Za-z]+/)||['cam'])[0];};
   $('#cal').innerHTML=`
     <div class="card">
-      <div class="row"><b>골망 ROI 캘리브레이션</b> <span class="mut">카메라에 <b>가까운 골망 하나만</b> 박스로 (먼 골은 반대편 카메라가 맡아요). 각 캠 1개씩.</span></div>
+      <div class="row"><b>골망 ROI 캘리브레이션</b> <span class="mut">카메라에 <b>가까운 골망 하나만</b> 드래그로 박스. 캠을 바꾸면 그 캠 프레임·저장된 박스가 바로 뜹니다. 각 캠 1개씩.</span></div>
       <div class="row">
-        <select id="calCam">${cams.map(c=>`<option value="${c}">${c.split('/').pop()}</option>`).join('')}</select>
+        <select id="calCam"></select>
         <label class="mut">시각(초) <input id="calT" type="number" value="60" step="5"></label>
-        <button class="btn" id="calGrab">프레임 가져오기</button>
-        <label class="mut">키 <input id="calKey" style="width:90px" value=""></label>
-        <button class="btn" id="calAdd" disabled>박스 저장</button>
-        <button class="btn primary" id="calSave" disabled>net_rois.json 저장</button>
+        <button class="btn" id="calGrab">프레임 새로고침</button>
+        <label class="mut">키 <input id="calKey" style="width:80px"></label>
+        <span id="calStat" class="mut"></span>
+        <button class="btn primary" id="calSave" style="margin-left:auto">net_rois.json 저장</button>
       </div>
       <canvas id="calCv" width="720" height="405"></canvas>
-      <table id="calTbl"><tr><th>키</th><th>x</th><th>y</th><th>w</th><th>h</th><th></th></tr></table>
+      <div class="mut" style="margin:6px 0 0">골망을 드래그하면 <b>자동 저장</b>됩니다. 다시 그리면 갱신, 아래 표에서 삭제.</div>
+      <table id="calTbl"></table>
     </div>`;
-  const keyGuess=p=>{const n=p.split('/').pop(); return (n.match(/^[A-Za-z]+/)||['cam'])[0];};
-  $('#calCam').onchange=()=>$('#calKey').value=keyGuess($('#calCam').value);
-  $('#calKey').value=keyGuess($('#calCam').value);
-  const calMsg=(txt,color)=>{const cv=$('#calCv'),c=cv.getContext('2d');c.fillStyle='#0e1116';c.fillRect(0,0,cv.width,cv.height);c.fillStyle=color;c.font='14px sans-serif';c.fillText(txt,20,cv.height/2);};
-  $('#calGrab').onclick=()=>{
+  const cv=$('#calCv'),ctx=cv.getContext('2d');
+  const curKey=()=>$('#calKey').value.trim();
+  const calMsg=(txt,color)=>{ctx.fillStyle='#0e1116';ctx.fillRect(0,0,cv.width,cv.height);ctx.fillStyle=color;ctx.font='14px sans-serif';ctx.fillText(txt,20,cv.height/2);};
+  const fillCams=()=>{$('#calCam').innerHTML=cams.map(c=>{const done=rois[keyGuess(c)]?' ✓':'';return `<option value="${c}">${c.split('/').pop()}${done}</option>`;}).join('');};
+  const restoreBox=()=>{const v=rois[curKey()];calBox=v?{x:v[0]*cv.width,y:v[1]*cv.height,w:v[2]*cv.width,h:v[3]*cv.height}:null;};
+  const updStat=()=>{$('#calStat').textContent=rois[curKey()]?'✓ 이 캠 저장됨':'미설정 — 골망을 드래그';};
+  window.drawCal=()=>{ctx.clearRect(0,0,cv.width,cv.height);
+    if(calImg)ctx.drawImage(calImg,0,0,cv.width,cv.height);
+    if(calBox){ctx.strokeStyle='#37d67a';ctx.lineWidth=2;ctx.strokeRect(calBox.x,calBox.y,calBox.w,calBox.h);ctx.fillStyle='rgba(55,214,122,.15)';ctx.fillRect(calBox.x,calBox.y,calBox.w,calBox.h);}};
+  const grab=()=>{
     const cam=$('#calCam').value,t=$('#calT').value;
-    calImg=null; calBox=null; $('#calAdd').disabled=true;
-    calMsg('프레임 불러오는 중… (원본이 커서 몇 초 걸릴 수 있어요)','#8b95a3');
+    calImg=null; calBox=null; calMsg('프레임 불러오는 중… (원본이 커서 몇 초 걸릴 수 있어요)','#8b95a3');
     const im=new Image();
-    im.onload=()=>{calImg=im;const cv=$('#calCv');const w=Math.min(720,im.naturalWidth);cv.width=w;cv.height=Math.round(im.naturalHeight*w/im.naturalWidth);drawCal();};
+    im.onload=()=>{calImg=im;const w=Math.min(720,im.naturalWidth);cv.width=w;cv.height=Math.round(im.naturalHeight*w/im.naturalWidth);restoreBox();drawCal();updStat();};
     im.onerror=()=>{calImg=null;calMsg('프레임 로드 실패 — 서버가 켜져 있는지 확인하세요 (gui/server.py)','#ff6b6b');};
     im.src=`/api/frame?path=${encodeURIComponent(cam)}&t=${t}`;
   };
-  const cv=$('#calCv'),ctx=cv.getContext('2d');
+  fillCams();
+  $('#calKey').value=keyGuess($('#calCam').value);
+  $('#calCam').onchange=()=>{$('#calKey').value=keyGuess($('#calCam').value);grab();};
+  $('#calKey').oninput=()=>{restoreBox();drawCal();updStat();};
+  $('#calGrab').onclick=grab;
   const pos=e=>{const r=cv.getBoundingClientRect();return{x:(e.clientX-r.left)*cv.width/r.width,y:(e.clientY-r.top)*cv.height/r.height};};
   cv.onmousedown=e=>{if(calImg){const p=pos(e);calDrag={x0:p.x,y0:p.y};}};
   cv.onmousemove=e=>{if(!calDrag)return;const p=pos(e);calBox={x:Math.min(calDrag.x0,p.x),y:Math.min(calDrag.y0,p.y),w:Math.abs(p.x-calDrag.x0),h:Math.abs(p.y-calDrag.y0)};drawCal();};
-  window.onmouseup=()=>{if(calDrag&&calBox&&calBox.w>4)$('#calAdd').disabled=false;calDrag=null;};
-  window.drawCal=()=>{ctx.clearRect(0,0,cv.width,cv.height);if(calImg){ctx.drawImage(calImg,0,0,cv.width,cv.height);}else{ctx.fillStyle='#0e1116';ctx.fillRect(0,0,cv.width,cv.height);ctx.fillStyle='#8b95a3';ctx.font='14px sans-serif';ctx.fillText('"프레임 가져오기"를 누르세요 (원본이 커서 몇 초 걸릴 수 있어요)',20,cv.height/2);}if(calBox){ctx.strokeStyle='#37d67a';ctx.lineWidth=2;ctx.strokeRect(calBox.x,calBox.y,calBox.w,calBox.h);ctx.fillStyle='rgba(55,214,122,.15)';ctx.fillRect(calBox.x,calBox.y,calBox.w,calBox.h);}};
-  $('#calAdd').onclick=()=>{const k=$('#calKey').value.trim();if(!k||!calBox)return;const cv=$('#calCv');rois[k]=[round(calBox.x/cv.width,4),round(calBox.y/cv.height,4),round(calBox.w/cv.width,4),round(calBox.h/cv.height,4)];calTbl();$('#calSave').disabled=false;};
-  $('#calSave').onclick=async()=>{await api('/api/rois',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({rois})});alert('저장됨: net_rois.json');STATE.rois_exists=true;};
-  window.calTbl=()=>{const t=$('#calTbl');t.innerHTML='<tr><th>키</th><th>x</th><th>y</th><th>w</th><th>h</th><th></th></tr>'+Object.entries(rois).map(([k,v])=>`<tr><td>${k}</td>${v.map(n=>`<td>${n}</td>`).join('')}<td><button class="btn sm" onclick="delete rois['${k}'];calTbl()">삭제</button></td></tr>`).join('');};
-  calTbl();
-  drawCal();                 // show the "누르세요" hint immediately
-  $('#calGrab').click();     // auto-load the first frame so the tab isn't a black box
+  window.onmouseup=()=>{
+    if(calDrag&&calBox&&calBox.w>6&&calBox.h>6){const k=curKey();
+      if(k){rois[k]=[round(calBox.x/cv.width,4),round(calBox.y/cv.height,4),round(calBox.w/cv.width,4),round(calBox.h/cv.height,4)];calTbl();fillCams();updStat();}}
+    calDrag=null;
+  };
+  window.calTbl=()=>{const t=$('#calTbl');
+    const rows=Object.entries(rois).map(([k,v])=>`<tr${k===curKey()?' style="background:#232b34"':''}><td><b>${k}</b></td>${v.map(n=>`<td>${n}</td>`).join('')}<td><button class="btn sm" data-del="${k}">삭제</button></td></tr>`).join('');
+    t.innerHTML='<tr><th>키</th><th>x</th><th>y</th><th>w</th><th>h</th><th></th></tr>'+(rows||'<tr><td colspan="6" class="mut">아직 없음 — 캠 선택 후 골망을 드래그하세요</td></tr>');
+    t.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{const k=b.dataset.del;delete rois[k];if(k===curKey())calBox=null;calTbl();fillCams();drawCal();updStat();});};
+  $('#calSave').onclick=async()=>{
+    try{await api('/api/rois',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({rois})});$('#calStat').textContent='✓ net_rois.json 저장 완료';STATE.rois_exists=true;}
+    catch(e){$('#calStat').textContent='저장 실패: '+e.message;}};
+  calTbl(); updStat(); grab();   // auto-load first cam frame + its saved ROI
 }
 
 /* ---------- ③ EDIT ---------- */

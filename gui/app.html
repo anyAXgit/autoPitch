@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>MAHP 스튜디오</title>
+<title>autoPitch 스튜디오</title>
 <style>
   :root{--bg:#0f1216;--panel:#191f27;--line:#2a323d;--fg:#e7ebf0;--mut:#8b95a3;--accent:#4ea1ff;--ok:#37d67a;--drop:#ff6b6b;}
   *{box-sizing:border-box;} body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 -apple-system,Segoe UI,Roboto,sans-serif;}
@@ -24,7 +24,8 @@
   video{width:100%;max-height:300px;background:#000;border-radius:8px;}
   .tl{position:relative;height:40px;background:#0b0e12;border:1px solid var(--line);border-radius:6px;margin-top:8px;touch-action:none;cursor:pointer;}
   .tl .blk{position:absolute;top:6px;bottom:6px;border-radius:4px;font-size:10px;line-height:1;color:#e8eef5;overflow:hidden;padding:3px 5px;pointer-events:none;white-space:nowrap;}
-  .tl .b0{background:#2f5d8a;} .tl .b1{background:#8a5a2f;}
+  .tl .b0{background:rgba(47,93,138,.55);} .tl .b1{background:rgba(138,90,47,.55);}
+  .tl .wave{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;border:none;background:transparent;border-radius:6px;}
   .tl .ph{position:absolute;top:0;bottom:0;width:2px;background:#fff;pointer-events:none;}
   .tl .hd{position:absolute;top:-4px;bottom:-4px;width:10px;margin-left:-5px;cursor:ew-resize;border-radius:3px;background:var(--accent);}
   .tl .hd.hcut{background:var(--ok);}
@@ -40,7 +41,7 @@
 </head>
 <body>
 <header>
-  <h1>🎬 MAHP 스튜디오</h1>
+  <h1>🎬 autoPitch 스튜디오</h1>
   <button class="tab on" data-tab="setup">① 설정</button>
   <button class="tab" data-tab="cal">② 골 ROI</button>
   <button class="tab" data-tab="edit">③ 편집·렌더</button>
@@ -196,6 +197,7 @@ function buildCard(c,i){
       <button class="btn sm" data-down ${i===clips.length-1?'disabled':''}>▼</button></div>
     <video data-vid preload="metadata"></video>
     <div class="tl" data-tl>
+      <canvas class="wave" data-wave></canvas>
       <div class="blk b0" data-b0>${camName(segs[0].cam)}</div>
       <div class="blk b1" data-b1>${two?camName(segs[1].cam):''}</div>
       <div class="ph" data-ph></div>
@@ -303,7 +305,20 @@ function buildCard(c,i){
     else if(e.key==='o'||e.key==='O'){if(two)segs[1].src_out=Math.max(segs[1].src_in+0.5,uNow()+shift);else segs[0].src_out=Math.max(segs[0].src_in+0.5,uNow());layout();updStats();}
     else if((e.key==='c'||e.key==='C')&&two){const nu=Math.max(uIn()+0.5,Math.min(uOut()-0.5,uNow()));const dt=nu-segs[0].src_out;segs[0].src_out=nu;segs[1].src_in=Math.max(0,segs[1].src_in+dt);layout();updStats();}
   });
-  requestAnimationFrame(()=>{layout();setSeg(0,uIn(),false);});  // layout after insert (needs clientWidth)
+  async function drawWave(){
+    // cheer envelope behind the blocks — cut while SEEING the roar
+    const rel=plan.audio_rel&&plan.audio_rel[segs[0].cam];
+    if(!rel)return;
+    try{
+      const cnv=q('[data-wave]'),w=tl.clientWidth,h=tl.clientHeight;
+      cnv.width=w;cnv.height=h;
+      const r=await api(`/api/wave?path=${encodeURIComponent(rel)}&t0=${round(U0,2)}&t1=${round(U1,2)}&n=${Math.min(600,Math.max(120,Math.round(w/2)))}`);
+      const g=cnv.getContext('2d');g.clearRect(0,0,w,h);g.fillStyle='rgba(160,172,188,.55)';
+      const n=r.peaks.length,bw=w/n,mid=h/2;
+      r.peaks.forEach((p,i)=>{const bh=Math.max(1,p*(h-8));g.fillRect(i*bw,mid-bh/2,Math.max(1,bw-0.5),bh);});
+    }catch(e){}
+  }
+  requestAnimationFrame(()=>{layout();setSeg(0,uIn(),false);drawWave();});  // layout after insert (needs clientWidth)
   return el;
 }
 

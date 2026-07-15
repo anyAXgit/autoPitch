@@ -1,4 +1,6 @@
-# MAHP — Matchwd Auto-Highlight Pipeline
+# autoPitch — 풋살 자동 하이라이트 파이프라인
+
+> (구명: MAHP)
 
 동네 풋살 영상(단일캠 또는 3캠)에서 환호성 오디오 피크로 골을 찾아
 자동으로 하이라이트 .mp4를 만드는 로컬 파이썬 파이프라인.

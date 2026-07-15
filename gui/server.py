@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""MAHP local GUI server — ties the whole workflow into one browser app:
+"""autoPitch local GUI server — ties the whole workflow into one browser app:
 set project root, calibrate net ROIs on real frames, detect goal candidates,
 scrub the actual footage and fine-tune cut points, then render.
 
@@ -110,9 +110,31 @@ def compute_plan(game):
             seg["src_rel"] = os.path.relpath(seg["src"], root)
     plan["game"] = game
     plan["offsets"] = offsets
+    # analysis WAV per cam -- the editor timeline draws its waveform from these
+    plan["audio_rel"] = {c: os.path.relpath(p, root) for c, p in pre["audio"].items()}
     with open(_plan_cache_path(game), "w") as f:
         json.dump(plan, f)
     return plan
+
+
+def wave_env(rel, t0, t1, n):
+    """Peak envelope of a WAV window, normalized 0..1, for timeline waveforms."""
+    import numpy as np
+    import soundfile as sf
+    full = within_root(rel)
+    info = sf.info(full)
+    sr = info.samplerate
+    a = max(0, int(t0 * sr))
+    b = min(info.frames, int(t1 * sr))
+    if b <= a:
+        return []
+    y = sf.read(full, start=a, stop=b, dtype="float32", always_2d=True)[0].mean(axis=1)
+    n = max(10, min(int(n), 2000))
+    idx = np.linspace(0, len(y), n + 1).astype(int)
+    peaks = [float(np.abs(y[idx[i]:idx[i + 1]]).max()) if idx[i + 1] > idx[i] else 0.0
+             for i in range(n)]
+    m = max(peaks) or 1.0
+    return [round(p / m, 3) for p in peaks]
 
 
 JOBS = {}   # job_id -> {"status": running|done|error, "progress": [i, n], ...}
@@ -147,7 +169,7 @@ def start_render(plan, out_rel, bgm=None, bgm_volume=0.15):
 
 def grab_frame(rel, t):
     full = within_root(rel)
-    tmp = os.path.join(tempfile.gettempdir(), f"mahp_frame_{abs(hash((rel, t)))}.jpg")
+    tmp = os.path.join(tempfile.gettempdir(), f"autopitch_frame_{abs(hash((rel, t)))}.jpg")
     subprocess.run(["ffmpeg", "-y", "-v", "error", "-ss", str(t), "-i", full,
                     "-frames:v", "1", "-vf", "scale=-2:720", tmp], check=True)
     return tmp
@@ -235,6 +257,11 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     plan["cached"] = True
                 return self._json(plan)
+            if u.path == "/api/wave":
+                return self._json({"peaks": wave_env(
+                    urllib.parse.unquote(q["path"][0]),
+                    float(q.get("t0", ["0"])[0]), float(q.get("t1", ["60"])[0]),
+                    int(q.get("n", ["400"])[0]))})
             if u.path == "/api/render_status":
                 job = JOBS.get(q.get("job", [""])[0])
                 return self._json(job if job else {"status": "error", "error": "unknown job"})
@@ -274,7 +301,7 @@ def main():
     a = ap.parse_args()
     STATE["root"] = os.path.realpath(os.path.expanduser(a.root))
     srv = ThreadingHTTPServer(("127.0.0.1", a.port), Handler)
-    print(f"MAHP GUI on http://127.0.0.1:{a.port}  (root={STATE['root']})")
+    print(f"autoPitch GUI on http://127.0.0.1:{a.port}  (root={STATE['root']})")
     srv.serve_forever()
 
 

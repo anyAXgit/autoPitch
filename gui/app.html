@@ -99,11 +99,15 @@ async function renderCal(){
   const keyGuess=p=>{const n=p.split('/').pop(); return (n.match(/^[A-Za-z]+/)||['cam'])[0];};
   $('#calCam').onchange=()=>$('#calKey').value=keyGuess($('#calCam').value);
   $('#calKey').value=keyGuess($('#calCam').value);
-  $('#calGrab').onclick=async()=>{
+  const calMsg=(txt,color)=>{const cv=$('#calCv'),c=cv.getContext('2d');c.fillStyle='#0e1116';c.fillRect(0,0,cv.width,cv.height);c.fillStyle=color;c.font='14px sans-serif';c.fillText(txt,20,cv.height/2);};
+  $('#calGrab').onclick=()=>{
     const cam=$('#calCam').value,t=$('#calT').value;
-    calImg=new Image();
-    calImg.onload=()=>{const cv=$('#calCv');const w=Math.min(720,calImg.naturalWidth);cv.width=w;cv.height=Math.round(calImg.naturalHeight*w/calImg.naturalWidth);calBox=null;$('#calAdd').disabled=true;drawCal();};
-    calImg.src=`/api/frame?path=${encodeURIComponent(cam)}&t=${t}`;
+    calImg=null; calBox=null; $('#calAdd').disabled=true;
+    calMsg('프레임 불러오는 중… (원본이 커서 몇 초 걸릴 수 있어요)','#8b95a3');
+    const im=new Image();
+    im.onload=()=>{calImg=im;const cv=$('#calCv');const w=Math.min(720,im.naturalWidth);cv.width=w;cv.height=Math.round(im.naturalHeight*w/im.naturalWidth);drawCal();};
+    im.onerror=()=>{calImg=null;calMsg('프레임 로드 실패 — 서버가 켜져 있는지 확인하세요 (gui/server.py)','#ff6b6b');};
+    im.src=`/api/frame?path=${encodeURIComponent(cam)}&t=${t}`;
   };
   const cv=$('#calCv'),ctx=cv.getContext('2d');
   const pos=e=>{const r=cv.getBoundingClientRect();return{x:(e.clientX-r.left)*cv.width/r.width,y:(e.clientY-r.top)*cv.height/r.height};};

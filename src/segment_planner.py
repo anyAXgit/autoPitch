@@ -121,6 +121,10 @@ def build_plan(pre, offsets, peaks, camA, cfg):
         return {"cam": cam, "src": pre["source"][cam],
                 "src_in": max(0.0, a + off), "src_out": b + off}
 
+    # Resolve every clip's anchor first so each clip can be clamped against the
+    # NEXT one: min_gap (15s) < max_len (25s), so back-to-back goals could
+    # otherwise overlap and duplicate the same scene in consecutive clips.
+    anchors = []
     for peak in peaks:
         # Anchor timing on the cheer ONSET (goal moment), not the loudness peak,
         # so the buildup reliably contains the shot instead of starting mid-celebration.
@@ -133,8 +137,25 @@ def build_plan(pre, offsets, peaks, camA, cfg):
             refined = _refine_anchor(pre, offsets, T, cfg, rois)
             if refined is not None:
                 T, goal_cam = refined
+        anchors.append((T, peak, goal_cam))
+    anchors.sort(key=lambda a: a[0])   # refinement can nudge order
+    # When two cheers merge into one continuous roar, both onsets can collapse
+    # to the same rise -- that's one goal moment, not two near-identical clips.
+    deduped = []
+    for a in anchors:
+        if deduped and a[0] - deduped[-1][0] < 1.0:
+            continue
+        deduped.append(a)
+    anchors = deduped
+
+    for idx, (T, peak, goal_cam) in enumerate(anchors):
         start = max(0.0, T - cfg.build_up_sec)
         hi = start + cfg.max_len_sec
+        if idx + 1 < len(anchors):
+            next_start = anchors[idx + 1][0] - cfg.build_up_sec
+            # never end past the next clip's start (keep a sane floor so the
+            # reaction doesn't collapse when goals are absurdly close)
+            hi = min(hi, max(next_start, T + cfg.post_goal_sec + cfg.min_reaction_sec))
         end = min(reaction_end(times, db, T, cfg) + cfg.tail_sec, hi)
         if pre["is_multicam"]:
             # PRIMARY angle (buildup + the goal itself) = the goal-side cam when the
@@ -159,4 +180,4 @@ def build_plan(pre, offsets, peaks, camA, cfg):
                       "goal_cam": goal_cam, "segments": segments})
     return {"fps": cfg.fps, "crossfade_sec": cfg.crossfade_sec,
             "output_width": pre["width"], "output_height": pre["height"],
-            "clips": clips}
+            "hw_encode": cfg.hw_encode, "clips": clips}

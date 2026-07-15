@@ -196,6 +196,28 @@ def test_build_plan_no_locate_keeps_camA_primary(tmp_path):
     assert clip["segments"][0]["cam"] == "camA"
 
 
+def test_adjacent_clips_do_not_overlap(tmp_path):
+    # Two goals 12s apart with LONG celebrations: without clamping, clip 1's end
+    # (up to start+max_len=20s) would run past clip 2's start and duplicate the
+    # same scene in both clips. The planner must clamp clip 1 to clip 2's start.
+    raw = tmp_path / "raw"
+    make_dummy_set(str(raw), [
+        {"name": "camA", "color": "red", "offset": 0.0,
+         # two long cheers with a clear 2s dip between (distinct onsets ~20 / ~32)
+         "bursts": [(20, 30, 12), (32, 42, 12)]},
+    ], duration=60.0)
+    res = preprocess_all(str(raw), str(tmp_path / "tv"), str(tmp_path / "ta"), fps=30)
+    cfg = _cfg(tmp_path)                             # min_gap 5, build_up 5, max_len 20
+    peaks = detect_peaks(res["audio"]["camA"], cfg)
+    assert len(peaks) >= 2
+    plan = build_plan(res, {"camA": 0.0}, peaks, "camA", cfg)
+    clips = plan["clips"]
+    for a, b in zip(clips, clips[1:]):
+        end_a = a["segments"][-1]["src_out"]         # single-cam: camA timeline
+        start_b = b["segments"][0]["src_in"]
+        assert end_a <= start_b + 1e-6, f"clip overlap: {end_a} > {start_b}"
+
+
 def test_reaction_end_extends_for_long_celebration():
     # Quiet ambient (~-40dB) everywhere except a long, loud celebration
     # (~-10dB) from T=10 through t=30 (20s), followed by a quiet tail.

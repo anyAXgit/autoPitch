@@ -114,11 +114,13 @@ async function renderCal(){
   cv.onmousedown=e=>{if(calImg){const p=pos(e);calDrag={x0:p.x,y0:p.y};}};
   cv.onmousemove=e=>{if(!calDrag)return;const p=pos(e);calBox={x:Math.min(calDrag.x0,p.x),y:Math.min(calDrag.y0,p.y),w:Math.abs(p.x-calDrag.x0),h:Math.abs(p.y-calDrag.y0)};drawCal();};
   window.onmouseup=()=>{if(calDrag&&calBox&&calBox.w>4)$('#calAdd').disabled=false;calDrag=null;};
-  window.drawCal=()=>{ctx.clearRect(0,0,cv.width,cv.height);if(calImg)ctx.drawImage(calImg,0,0,cv.width,cv.height);if(calBox){ctx.strokeStyle='#37d67a';ctx.lineWidth=2;ctx.strokeRect(calBox.x,calBox.y,calBox.w,calBox.h);ctx.fillStyle='rgba(55,214,122,.15)';ctx.fillRect(calBox.x,calBox.y,calBox.w,calBox.h);}};
+  window.drawCal=()=>{ctx.clearRect(0,0,cv.width,cv.height);if(calImg){ctx.drawImage(calImg,0,0,cv.width,cv.height);}else{ctx.fillStyle='#0e1116';ctx.fillRect(0,0,cv.width,cv.height);ctx.fillStyle='#8b95a3';ctx.font='14px sans-serif';ctx.fillText('"프레임 가져오기"를 누르세요 (원본이 커서 몇 초 걸릴 수 있어요)',20,cv.height/2);}if(calBox){ctx.strokeStyle='#37d67a';ctx.lineWidth=2;ctx.strokeRect(calBox.x,calBox.y,calBox.w,calBox.h);ctx.fillStyle='rgba(55,214,122,.15)';ctx.fillRect(calBox.x,calBox.y,calBox.w,calBox.h);}};
   $('#calAdd').onclick=()=>{const k=$('#calKey').value.trim();if(!k||!calBox)return;const cv=$('#calCv');rois[k]=[round(calBox.x/cv.width,4),round(calBox.y/cv.height,4),round(calBox.w/cv.width,4),round(calBox.h/cv.height,4)];calTbl();$('#calSave').disabled=false;};
   $('#calSave').onclick=async()=>{await api('/api/rois',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({rois})});alert('저장됨: net_rois.json');STATE.rois_exists=true;};
   window.calTbl=()=>{const t=$('#calTbl');t.innerHTML='<tr><th>키</th><th>x</th><th>y</th><th>w</th><th>h</th><th></th></tr>'+Object.entries(rois).map(([k,v])=>`<tr><td>${k}</td>${v.map(n=>`<td>${n}</td>`).join('')}<td><button class="btn sm" onclick="delete rois['${k}'];calTbl()">삭제</button></td></tr>`).join('');};
   calTbl();
+  drawCal();                 // show the "누르세요" hint immediately
+  $('#calGrab').click();     // auto-load the first frame so the tab isn't a black box
 }
 
 /* ---------- ③ EDIT ---------- */

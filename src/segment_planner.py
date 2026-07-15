@@ -64,8 +64,9 @@ def cheer_onset(times, db, peak, cfg):
 
 def _refine_anchor(pre, offsets, onset, cfg, rois):
     """Refine the onset anchor to the exact goal frame via the net-motion spike in
-    each cam's calibrated ROI (fixed cameras). Returns a camA-timeline time, or None
-    if no cam has a prominent spike (caller keeps the onset -- goal not visible)."""
+    each cam's calibrated ROI (fixed cameras). Returns `(goal_time_camA, goal_cam)`
+    -- the refined time AND the cam whose net was hit (= the goal-side camera) --
+    or None if no cam has a prominent spike (caller keeps the onset / audio angle)."""
     best = None
     for cam in pre["cams"]:
         roi = goal_locator.roi_for_cam(cam, rois)
@@ -73,9 +74,9 @@ def _refine_anchor(pre, offsets, onset, cfg, rois):
             continue
         off = offsets.get(cam, 0.0)
         r = goal_locator.locate_goal(pre["source"][cam], onset + off, cfg, roi)
-        if r and (best is None or r["confidence"] > best[1]):
-            best = (r["goal_time"] - off, r["confidence"])   # back to camA timeline
-    return best[0] if best else None
+        if r and (best is None or r["confidence"] > best[2]):
+            best = (r["goal_time"] - off, cam, r["confidence"])   # camA timeline + goal-side cam
+    return (best[0], best[1]) if best else None
 
 
 def _mean_db(times, db, a, b):
@@ -83,20 +84,26 @@ def _mean_db(times, db, a, b):
     return float(np.mean(db[mask])) if mask.any() else -np.inf
 
 
-def pick_reaction_angle(pre, offsets, camA, T, end, cfg, rms_cache):
-    if not pre["is_multicam"]:
-        return camA
-    best, best_db = camA, -np.inf
+def _loudest_other(pre, offsets, exclude, T, end, cfg, rms_cache):
+    """Loudest cam over the celebration window [T, end], excluding `exclude`.
+    Returns None if there's no other cam."""
+    best, best_db = None, -np.inf
     for cam in pre["cams"]:
-        if cam == camA:
+        if cam == exclude:
             continue
-        a = max(0.0, T + offsets[cam])
-        b = end + offsets[cam]
+        a = max(0.0, T + offsets.get(cam, 0.0))
+        b = end + offsets.get(cam, 0.0)
         cam_times, cam_db = rms_cache[cam]
         m = _mean_db(cam_times, cam_db, a, b)
         if m > best_db:
             best, best_db = cam, m
     return best
+
+
+def pick_reaction_angle(pre, offsets, camA, T, end, cfg, rms_cache):
+    if not pre["is_multicam"]:
+        return camA
+    return _loudest_other(pre, offsets, camA, T, end, cfg, rms_cache) or camA
 
 
 def build_plan(pre, offsets, peaks, camA, cfg):
@@ -109,45 +116,47 @@ def build_plan(pre, offsets, peaks, camA, cfg):
             rms_cache[cam] = rms_db(pre["audio"][cam], cfg.rms_window_sec)
     rois = goal_locator.load_rois(cfg.locate.rois_path) if cfg.locate.enabled else {}
     clips = []
+    def seg(cam, a, b):
+        off = offsets.get(cam, 0.0)
+        return {"cam": cam, "src": pre["source"][cam],
+                "src_in": max(0.0, a + off), "src_out": b + off}
+
     for peak in peaks:
         # Anchor timing on the cheer ONSET (goal moment), not the loudness peak,
         # so the buildup reliably contains the shot instead of starting mid-celebration.
         T = cheer_onset(times, db, peak, cfg)
+        goal_cam = None
         if rois:
-            # Fixed-camera net-ROI motion pinpoints the exact goal frame; fall back
-            # to onset when the net isn't visible / no clear disturbance.
+            # Fixed-camera net-ROI motion pinpoints the exact goal frame AND which
+            # cam's net was hit (= the goal-side camera). Fall back to onset / audio
+            # angle when the net isn't visible / no clear disturbance.
             refined = _refine_anchor(pre, offsets, T, cfg, rois)
             if refined is not None:
-                T = refined
+                T, goal_cam = refined
         start = max(0.0, T - cfg.build_up_sec)
         hi = start + cfg.max_len_sec
         end = min(reaction_end(times, db, T, cfg) + cfg.tail_sec, hi)
         if pre["is_multicam"]:
-            react_cam = pick_reaction_angle(pre, offsets, camA, T, end, cfg, rms_cache)
-            if react_cam != camA:
-                # Hold Cam A a beat past the goal peak before switching to the
-                # reaction angle (goal peak T = loudest cheer, slightly after
-                # the ball crosses the line), so the ball settling into the net
-                # and the first beat of celebration play on the main cam. Grow
-                # `end` if needed so the reaction segment keeps at least
-                # min_reaction_sec, clamped under max_len.
+            # PRIMARY angle (buildup + the goal itself) = the goal-side cam when the
+            # net-ROI identified it, else Cam A. This shows the goal from the camera
+            # nearest to where it was scored instead of whichever cam is loudest.
+            primary = goal_cam if (goal_cam and goal_cam in pre["cams"]) else camA
+            react = _loudest_other(pre, offsets, primary, T, end, cfg, rms_cache)
+            if react is not None:
+                # Hold the primary cam a beat past the goal before switching to the
+                # reaction angle, so the ball settling into the net and the first
+                # beat of celebration play on the goal-side cam. Grow `end` if needed
+                # so the reaction segment keeps at least min_reaction_sec.
                 end = min(max(end, T + cfg.post_goal_sec + cfg.min_reaction_sec), hi)
                 cut = max(T, min(T + cfg.post_goal_sec, end - cfg.min_reaction_sec))
-                segments = [
-                    {"cam": camA, "src": pre["source"][camA],
-                     "src_in": start, "src_out": cut},
-                    {"cam": react_cam, "src": pre["source"][react_cam],
-                     "src_in": max(0.0, cut + offsets[react_cam]),
-                     "src_out": end + offsets[react_cam]},
-                ]
+                segments = [seg(primary, start, cut), seg(react, cut, end)]
             else:
-                segments = [{"cam": camA, "src": pre["source"][camA],
-                             "src_in": start, "src_out": end}]
+                segments = [seg(primary, start, end)]
         else:
-            segments = [{"cam": camA, "src": pre["source"][camA],
-                         "src_in": start, "src_out": end}]
-        # T = goal-onset anchor (clip start / label); peak = loudness peak (kept for reference)
-        clips.append({"T": float(T), "peak": float(peak), "segments": segments})
+            segments = [seg(camA, start, end)]
+        # T = goal-onset anchor (clip start / label); peak = loudness peak; goal_cam = net-ROI goal side
+        clips.append({"T": float(T), "peak": float(peak),
+                      "goal_cam": goal_cam, "segments": segments})
     return {"fps": cfg.fps, "crossfade_sec": cfg.crossfade_sec,
             "output_width": pre["width"], "output_height": pre["height"],
             "clips": clips}

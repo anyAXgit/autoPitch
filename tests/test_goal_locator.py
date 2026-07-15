@@ -42,9 +42,9 @@ def test_refine_anchor_uses_net_spike(tmp_path):
     clip = tmp_path / "flash.mp4"
     _flash_clip(clip, flash=True)
     pre = {"cams": ["camA"], "source": {"camA": str(clip)}}
-    # ROI present -> anchor refined to the net spike (~3.0s), overriding the onset
+    # ROI present -> (refined time ~3.0s, goal-side cam)
     got = _refine_anchor(pre, {"camA": 0.0}, 3.1, _CFG, {"camA": _ROI})
-    assert got is not None and 2.7 <= got <= 3.5
+    assert got is not None and 2.7 <= got[0] <= 3.5 and got[1] == "camA"
     # no ROI matches this cam -> None (caller keeps the onset)
     assert _refine_anchor(pre, {"camA": 0.0}, 3.1, _CFG, {"other": _ROI}) is None
 

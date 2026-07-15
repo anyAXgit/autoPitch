@@ -168,6 +168,34 @@ def test_build_plan_anchors_on_onset(tmp_path):
     assert abs(clip["segments"][0]["src_in"] - max(0.0, clip["T"] - cfg.build_up_sec)) < 1e-6
 
 
+def test_build_plan_goal_side_cam_is_primary(tmp_path, monkeypatch):
+    # When net-ROI identifies the goal-side cam (here camB), the GOAL segment
+    # (seg0) must use camB, not always camA -- so the goal is shown from the
+    # camera nearest to where it was scored; reaction = the other cam (camA).
+    import src.segment_planner as sp
+    res, offsets = _multicam_res(tmp_path)                      # camA + camB
+    (tmp_path / "net_rois.json").write_text('{"cam":[0,0,1,1]}')  # non-empty -> rois truthy
+    cfg = _cfg_yaml(tmp_path, locate={"enabled": True,
+                                      "rois_path": str(tmp_path / "net_rois.json")})
+    monkeypatch.setattr(sp, "_refine_anchor", lambda *a, **k: (30.0, "camB"))
+    peaks = detect_peaks(res["audio"]["camA"], cfg)
+    plan = sp.build_plan(res, offsets, peaks, "camA", cfg)
+    clip = plan["clips"][0]
+    assert clip["goal_cam"] == "camB"
+    assert clip["segments"][0]["cam"] == "camB"                 # goal from goal-side cam
+    assert clip["segments"][1]["cam"] == "camA"                 # reaction from the other cam
+
+
+def test_build_plan_no_locate_keeps_camA_primary(tmp_path):
+    # Without net-ROI, behavior is unchanged: Cam A stays the buildup/goal angle.
+    res, offsets = _multicam_res(tmp_path)
+    cfg = _cfg(tmp_path)                                        # locate disabled
+    peaks = detect_peaks(res["audio"]["camA"], cfg)
+    clip = build_plan(res, offsets, peaks, "camA", cfg)["clips"][0]
+    assert clip["goal_cam"] is None
+    assert clip["segments"][0]["cam"] == "camA"
+
+
 def test_reaction_end_extends_for_long_celebration():
     # Quiet ambient (~-40dB) everywhere except a long, loud celebration
     # (~-10dB) from T=10 through t=30 (20s), followed by a quiet tail.

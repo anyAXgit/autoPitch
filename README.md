@@ -40,10 +40,12 @@ python3 -m venv .venv
 
 ### 네트-ROI 골 정밀 위치 (선택, 무API)
 카메라가 고정이면 골망 위치도 고정 → 공이 네트를 때리는 **모션 스파이크**로
-정확한 골 프레임을 잡는다. `editor/calibrate.html`을 열어 각 캠 정지 프레임에
-골망 박스를 그려 `net_rois.json`을 만든 뒤 `locate.enabled: true` +
-`locate.rois_path` 지정. 컷 앵커가 함성 onset → **진짜 골 프레임**으로 정밀화된다.
-골망이 안 보이거나 스파이크가 약하면 **자동으로 onset 폴백**(클립은 유지).
+정확한 골 프레임을 잡는다. 캘리브레이션은 **각 카메라에 가까운 골망 하나만**
+박스로(먼 골은 반대편 카메라가 맡음, 카메라당 1개) → `net_rois.json`. 이렇게 하면
+각 골이 어느 캠 네트에서 났는지로 **골 난 쪽 카메라를 골 장면 앵글**로도 쓴다.
+`locate.enabled: true` + `locate.rois_path` 지정 시 컷 앵커가 함성 onset →
+**진짜 골 프레임**으로 정밀화된다. 골망이 안 보이거나 스파이크가 약하면
+**자동으로 onset 폴백**(클립은 유지, Cam A 앵글).
 정지 프레임 추출: `ffmpeg -ss 60 -i data/raw/cam1/DJI_...MP4 -frames:v 1 cam1.jpg`.
 
 ## Tests

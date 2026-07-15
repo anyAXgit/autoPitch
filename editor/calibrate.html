@@ -27,7 +27,7 @@
 <body>
 <header>
   <h1>🥅 골 ROI 캘리브레이션</h1>
-  <div class="mut">고정 카메라의 골망 위치를 한 번만 박스로 지정 → <code>net_rois.json</code>. 키는 파일명에 포함된 문자열(예: DJI, IMG)로.</div>
+  <div class="mut">각 카메라에 <b>가까운 골망 하나만</b> 박스로 지정(먼 골은 반대편 카메라가 맡음) → <code>net_rois.json</code>. 키는 파일명에 포함된 문자열(예: DJI, IMG). 카메라당 1개씩.</div>
 </header>
 <main>
   <div class="mut">① 캠 정지 프레임 추출 예:

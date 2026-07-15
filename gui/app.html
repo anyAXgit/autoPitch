@@ -84,7 +84,7 @@ async function renderCal(){
   const cams=[...new Set(STATE.games.flatMap(g=>[g.cam1,g.cam2]))];
   $('#cal').innerHTML=`
     <div class="card">
-      <div class="row"><b>골망 ROI 캘리브레이션</b> <span class="mut">고정 카메라의 골망을 한 번만 박스로.</span></div>
+      <div class="row"><b>골망 ROI 캘리브레이션</b> <span class="mut">카메라에 <b>가까운 골망 하나만</b> 박스로 (먼 골은 반대편 카메라가 맡아요). 각 캠 1개씩.</span></div>
       <div class="row">
         <select id="calCam">${cams.map(c=>`<option value="${c}">${c.split('/').pop()}</option>`).join('')}</select>
         <label class="mut">시각(초) <input id="calT" type="number" value="60" step="5"></label>

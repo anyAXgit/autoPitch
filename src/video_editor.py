@@ -28,6 +28,29 @@ def _ensure_filters():
         )
 
 
+_HW_H264 = None
+
+
+def _hw_available():
+    """True when ffmpeg has the Apple VideoToolbox H.264 encoder (cached probe)."""
+    global _HW_H264
+    if _HW_H264 is None:
+        out = subprocess.run(["ffmpeg", "-hide_banner", "-encoders"],
+                             capture_output=True, text=True, check=True)
+        _HW_H264 = "h264_videotoolbox" in out.stdout
+    return _HW_H264
+
+
+def h264_args(hw=True):
+    """Encoder args for the H.264 outputs. VideoToolbox (Apple HW) measured ~2x
+    faster than libx264 on this workload (HEVC decode dominates); falls back to
+    libx264 when unavailable or when hw=False (config hw_encode)."""
+    if hw and _hw_available():
+        return ["-c:v", "h264_videotoolbox", "-b:v", "10M", "-allow_sw", "1",
+                "-pix_fmt", "yuv420p"]
+    return ["-c:v", "libx264", "-pix_fmt", "yuv420p"]
+
+
 def probe_duration(path):
     out = subprocess.run(
         ["ffprobe", "-v", "error", "-show_entries", "format=duration",
@@ -37,7 +60,7 @@ def probe_duration(path):
     return float(out.stdout.strip())
 
 
-def render_segment(seg, fps, out_path, width, height):
+def render_segment(seg, fps, out_path, width, height, vargs=None):
     # Input-side seek (`-ss` before `-i`) so cutting a short window out of a
     # long ORIGINAL source is a keyframe jump, not a full decode-from-zero
     # (modern ffmpeg still lands on the exact frame). Normalize to the render
@@ -51,17 +74,18 @@ def render_segment(seg, fps, out_path, width, height):
     _ffmpeg([
         "-ss", str(seg["src_in"]), "-i", seg["src"], "-t", str(dur),
         "-vf", vf, "-vsync", "cfr", "-r", str(fps),
-        "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        *(vargs or h264_args()),
         "-c:a", "aac", "-ar", "48000", out_path,
     ])
 
 
-def render_clip(clip, fps, crossfade_sec, work_dir, out_path, width, height):
+def render_clip(clip, fps, crossfade_sec, work_dir, out_path, width, height, vargs=None):
     os.makedirs(work_dir, exist_ok=True)
+    vargs = vargs or h264_args()
     seg_paths = []
     for i, seg in enumerate(clip["segments"]):
         sp = os.path.join(work_dir, f"seg_{i}.mp4")
-        render_segment(seg, fps, sp, width, height)
+        render_segment(seg, fps, sp, width, height, vargs)
         seg_paths.append(sp)
 
     if len(seg_paths) == 1:
@@ -77,7 +101,7 @@ def render_clip(clip, fps, crossfade_sec, work_dir, out_path, width, height):
         f"[0:v][1:v]xfade=transition=fade:duration={crossfade_sec}:offset={off}[v];"
         f"[0:a][1:a]acrossfade=d={crossfade_sec}[a]",
         "-map", "[v]", "-map", "[a]",
-        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac",
+        *vargs, "-c:a", "aac",
         out_path,
     ])
     return out_path
@@ -106,12 +130,13 @@ def render_plan(plan, output_dir, bgm_path=None, bgm_volume=0.15, on_clip=None):
     xfade = plan["crossfade_sec"]
     width = plan.get("output_width", 1920)
     height = plan.get("output_height", 1080)
+    vargs = h264_args(plan.get("hw_encode", True))
     clip_paths = []
     for i, clip in enumerate(plan["clips"]):
         name = f"highlight_{clip['T']:.1f}.mp4"
         out_path = os.path.join(output_dir, name)
         work = os.path.join(output_dir, f".work_{clip['T']:.1f}")
-        render_clip(clip, fps, xfade, work, out_path, width, height)
+        render_clip(clip, fps, xfade, work, out_path, width, height, vargs)
         clip_paths.append(out_path)
         if on_clip:
             on_clip(i + 1, len(plan["clips"]), out_path)
@@ -129,7 +154,7 @@ def render_plan(plan, output_dir, bgm_path=None, bgm_volume=0.15, on_clip=None):
         all_path = os.path.join(output_dir, "highlight_all.mp4")
         _ffmpeg([
             "-f", "concat", "-safe", "0", "-i", listfile,
-            "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac",
+            *vargs, "-c:a", "aac",
             all_path,
         ])
         if bgm_path and os.path.exists(bgm_path):

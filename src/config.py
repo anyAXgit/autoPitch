@@ -49,6 +49,7 @@ class Config:
     crossfade_sec: float = 0.5
     output_width: int = 1920
     output_height: int = 1080
+    hw_encode: bool = True   # use Apple VideoToolbox H.264 when available (~2x faster here)
     main_cam: "str | None" = None
     bgm_path: "str | None" = None    # optional background-music file mixed under highlight_all
     bgm_volume: float = 0.15
@@ -83,6 +84,7 @@ def load_config(path: str = "config.yaml") -> Config:
         crossfade_sec=raw.get("crossfade_sec", defaults.crossfade_sec),
         output_width=raw.get("output_width", defaults.output_width),
         output_height=raw.get("output_height", defaults.output_height),
+        hw_encode=raw.get("hw_encode", defaults.hw_encode),
         main_cam=raw.get("main_cam", defaults.main_cam),
         bgm_path=raw.get("bgm_path", defaults.bgm_path),
         bgm_volume=raw.get("bgm_volume", defaults.bgm_volume),

@@ -14,6 +14,7 @@ reaction:
   min_reaction_sec: 2   # guarantee the reaction segment is at least this long
   tail_sec: 0           # extra seconds appended to each clip's end (0 = off)
 crossfade_sec: 0.5
+hw_encode: true            # Apple VideoToolbox H.264 (실측 ~2x 빠름; false = libx264)
 output_width: 1920
 output_height: 1080
 # bgm_path: data/bgm.mp3   # optional background music mixed under highlight_all.mp4

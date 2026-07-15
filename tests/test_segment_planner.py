@@ -175,7 +175,7 @@ def test_build_plan_goal_side_cam_is_primary(tmp_path, monkeypatch):
     import src.segment_planner as sp
     res, offsets = _multicam_res(tmp_path)                      # camA + camB
     (tmp_path / "net_rois.json").write_text('{"cam":[0,0,1,1]}')  # non-empty -> rois truthy
-    cfg = _cfg_yaml(tmp_path, locate={"enabled": True,
+    cfg = _cfg_yaml(tmp_path, locate={"enabled": True, "scan_enabled": True,
                                       "rois_path": str(tmp_path / "net_rois.json")})
     monkeypatch.setattr(sp, "_refine_anchor", lambda *a, **k: (30.0, "camB"))
     peaks = detect_peaks(res["audio"]["camA"], cfg)
@@ -184,6 +184,114 @@ def test_build_plan_goal_side_cam_is_primary(tmp_path, monkeypatch):
     assert clip["goal_cam"] == "camB"
     assert clip["segments"][0]["cam"] == "camB"                 # goal from goal-side cam
     assert clip["segments"][1]["cam"] == "camA"                 # reaction from the other cam
+
+
+def test_build_plan_prefers_earlier_roi_hit_over_stronger_later_hit(tmp_path, monkeypatch):
+    # A wider angle can produce a stronger ROI motion score after the real goal.
+    # The planner should still pick the earliest valid net hit so the goal-side
+    # camera starts with buildup instead of cutting in after the ball is already in.
+    import src.segment_planner as sp
+    res, offsets = _multicam_res(tmp_path)
+    (tmp_path / "net_rois.json").write_text('{"any":[0,0,1,1]}')
+    cfg = _cfg_yaml(tmp_path, locate={"enabled": True, "scan_enabled": True,
+                                      "rois_path": str(tmp_path / "net_rois.json")})
+
+    def fake_locate(source, center_time, cfg, roi):
+        if source.endswith("camA.mp4"):
+            return {"goal_time": 31.0, "confidence": 40.0}
+        return {"goal_time": 29.5, "confidence": 8.0}
+
+    monkeypatch.setattr(sp.goal_locator, "roi_for_cam", lambda *a, **k: [0, 0, 1, 1])
+    monkeypatch.setattr(sp.goal_locator, "locate_goal", fake_locate)
+    peaks = detect_peaks(res["audio"]["camA"], cfg)
+    clip = sp.build_plan(res, offsets, peaks, "camA", cfg)["clips"][0]
+    assert clip["goal_cam"] == "camB"
+    assert clip["segments"][0]["cam"] == "camB"
+
+
+def test_build_plan_ignores_roi_hit_that_is_too_far_before_onset(tmp_path, monkeypatch):
+    # Widening the ROI window helps delayed crowd reactions, but an old net bump
+    # should not steal the clip from a plausible goal-side hit near this cheer.
+    import src.segment_planner as sp
+    res, offsets = _multicam_res(tmp_path)
+    (tmp_path / "net_rois.json").write_text('{"any":[0,0,1,1]}')
+    cfg = _cfg_yaml(tmp_path, locate={"enabled": True, "scan_enabled": True,
+                                      "rois_path": str(tmp_path / "net_rois.json")})
+
+    def fake_locate(source, center_time, cfg, roi):
+        if source.endswith("camA.mp4"):
+            return {"goal_time": center_time - 12.0, "confidence": 80.0}
+        return {"goal_time": center_time - 2.0, "confidence": 8.0}
+
+    monkeypatch.setattr(sp.goal_locator, "roi_for_cam", lambda *a, **k: [0, 0, 1, 1])
+    monkeypatch.setattr(sp.goal_locator, "locate_goal", fake_locate)
+    peaks = detect_peaks(res["audio"]["camA"], cfg)
+    clip = sp.build_plan(res, offsets, peaks, "camA", cfg)["clips"][0]
+    assert clip["goal_cam"] == "camB"
+    assert clip["segments"][0]["cam"] == "camB"
+
+
+def test_build_plan_keeps_audio_onset_when_only_roi_hit_is_too_early(tmp_path, monkeypatch):
+    import src.segment_planner as sp
+    res, offsets = _multicam_res(tmp_path)
+    (tmp_path / "net_rois.json").write_text('{"any":[0,0,1,1]}')
+    cfg = _cfg_yaml(tmp_path, locate={"enabled": True, "scan_enabled": True,
+                                      "rois_path": str(tmp_path / "net_rois.json")})
+
+    monkeypatch.setattr(sp.goal_locator, "roi_for_cam", lambda *a, **k: [0, 0, 1, 1])
+    monkeypatch.setattr(sp.goal_locator, "locate_goal",
+                        lambda source, center_time, cfg, roi: {"goal_time": center_time - 12.0,
+                                                               "confidence": 80.0})
+    peaks = detect_peaks(res["audio"]["camA"], cfg)
+    clip = sp.build_plan(res, offsets, peaks, "camA", cfg)["clips"][0]
+    assert clip["goal_cam"] is None
+    assert clip["segments"][0]["cam"] == "camA"
+
+
+def test_build_plan_adds_roi_only_clip_when_audio_has_no_peak(tmp_path, monkeypatch):
+    import src.segment_planner as sp
+    res, offsets = _multicam_res(tmp_path)
+    (tmp_path / "net_rois.json").write_text('{"any":[0,0,1,1]}')
+    cfg = _cfg_yaml(tmp_path, locate={"enabled": True, "scan_enabled": True,
+                                      "rois_path": str(tmp_path / "net_rois.json")})
+
+    def fake_scan(source, cfg, roi, min_gap_sec, **kw):
+        if source.endswith("camB.mp4"):
+            return [{"goal_time": 30.0, "confidence": 20.0}]
+        return []
+
+    monkeypatch.setattr(sp.goal_locator, "roi_for_cam", lambda *a, **k: [0, 0, 1, 1])
+    monkeypatch.setattr(sp.goal_locator, "scan_goal_events", fake_scan)
+    plan = sp.build_plan(res, offsets, [], "camA", cfg)
+    assert len(plan["clips"]) == 1
+    clip = plan["clips"][0]
+    assert clip["goal_cam"] == "camB"
+    assert clip["segments"][0]["cam"] == "camB"
+    assert clip["roi_only"] is True          # flagged for review/verification
+
+
+def test_audio_backed_clips_not_flagged_roi_only(tmp_path):
+    res, offsets = _multicam_res(tmp_path)
+    cfg = _cfg(tmp_path)
+    peaks = detect_peaks(res["audio"]["camA"], cfg)
+    plan = build_plan(res, offsets, peaks, "camA", cfg)
+    assert all(c["roi_only"] is False for c in plan["clips"])
+
+
+def test_build_plan_does_not_duplicate_roi_only_near_audio_peak(tmp_path, monkeypatch):
+    import src.segment_planner as sp
+    res, offsets = _multicam_res(tmp_path)
+    (tmp_path / "net_rois.json").write_text('{"any":[0,0,1,1]}')
+    cfg = _cfg_yaml(tmp_path, locate={"enabled": True, "scan_enabled": True,
+                                      "rois_path": str(tmp_path / "net_rois.json")})
+
+    monkeypatch.setattr(sp.goal_locator, "roi_for_cam", lambda *a, **k: [0, 0, 1, 1])
+    monkeypatch.setattr(sp.goal_locator, "locate_goal", lambda *a, **k: None)
+    monkeypatch.setattr(sp.goal_locator, "scan_goal_events",
+                        lambda *a, **k: [{"goal_time": 31.0, "confidence": 20.0}])
+    peaks = detect_peaks(res["audio"]["camA"], cfg)
+    plan = sp.build_plan(res, offsets, peaks, "camA", cfg)
+    assert len(plan["clips"]) == 1
 
 
 def test_build_plan_no_locate_keeps_camA_primary(tmp_path):

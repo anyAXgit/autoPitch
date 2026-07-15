@@ -67,16 +67,63 @@ def _refine_anchor(pre, offsets, onset, cfg, rois):
     each cam's calibrated ROI (fixed cameras). Returns `(goal_time_camA, goal_cam)`
     -- the refined time AND the cam whose net was hit (= the goal-side camera) --
     or None if no cam has a prominent spike (caller keeps the onset / audio angle)."""
-    best = None
+    candidates = []
     for cam in pre["cams"]:
-        roi = goal_locator.roi_for_cam(cam, rois)
+        roi = goal_locator.roi_for_cam(cam, rois, pre["source"].get(cam))
         if not roi:
             continue
         off = offsets.get(cam, 0.0)
         r = goal_locator.locate_goal(pre["source"][cam], onset + off, cfg, roi)
-        if r and (best is None or r["confidence"] > best[2]):
-            best = (r["goal_time"] - off, cam, r["confidence"])   # camA timeline + goal-side cam
+        if r:
+            candidates.append((r["goal_time"] - off, cam, r["confidence"]))
+    if not candidates:
+        return None
+    # A widened ROI search window recovers delayed cheers, but it can also include
+    # keeper movement or players brushing the net long before the goal. Keep
+    # candidates that are plausibly tied to this cheer; if all candidates are too
+    # early, leave the audio onset alone instead of over-refining to noise.
+    max_lead = max(cfg.build_up_sec + 6.0, 11.0)
+    candidates = [c for c in candidates if c[0] >= onset - max_lead and c[0] <= onset + cfg.locate.post_sec]
+    if not candidates:
+        return None
+    # The ball hitting the net normally precedes the crowd peak/onset, and the
+    # closer camera can have lower ROI prominence than a wider camera with larger
+    # net/player motion. Prefer the earliest valid net hit over raw confidence so
+    # the buildup starts before the goal-side angle.
+    best = min(candidates, key=lambda x: (x[0], -x[2]))
     return (best[0], best[1]) if best else None
+
+
+def _roi_only_anchors(pre, offsets, cfg, rois, existing):
+    """Return ROI-only anchors `(T, peak, goal_cam)` that are not already covered
+    by audio-derived anchors. These raise recall for quiet goals, while min-gap
+    suppression keeps them from duplicating normal audio clips."""
+    candidates = []
+    for cam in pre["cams"]:
+        roi = goal_locator.roi_for_cam(cam, rois, pre["source"].get(cam))
+        if not roi:
+            continue
+        off = offsets.get(cam, 0.0)
+        for ev in goal_locator.scan_goal_events(pre["source"][cam], cfg, roi, cfg.min_gap_sec,
+                                                cache_path=cfg.locate.scan_cache):
+            T = ev["goal_time"] - off
+            if T < 0:
+                continue
+            if any(abs(T - anchor[0]) < cfg.min_gap_sec for anchor in existing):
+                continue
+            candidates.append((T, T, cam, ev["confidence"]))
+    if not candidates:
+        return []
+    candidates.sort(key=lambda x: x[0])
+    kept = []
+    for cand in candidates:
+        if kept and cand[0] - kept[-1][0] < cfg.min_gap_sec:
+            # If two cameras see the same quiet goal, use the earliest ROI hit.
+            if (cand[0], -cand[3]) < (kept[-1][0], -kept[-1][3]):
+                kept[-1] = cand
+        else:
+            kept.append(cand)
+    return [(T, peak, cam, True) for T, peak, cam, _conf in kept]
 
 
 def _mean_db(times, db, a, b):
@@ -137,7 +184,9 @@ def build_plan(pre, offsets, peaks, camA, cfg):
             refined = _refine_anchor(pre, offsets, T, cfg, rois)
             if refined is not None:
                 T, goal_cam = refined
-        anchors.append((T, peak, goal_cam))
+        anchors.append((T, peak, goal_cam, False))
+    if rois and cfg.locate.scan_enabled:
+        anchors.extend(_roi_only_anchors(pre, offsets, cfg, rois, anchors))
     anchors.sort(key=lambda a: a[0])   # refinement can nudge order
     # When two cheers merge into one continuous roar, both onsets can collapse
     # to the same rise -- that's one goal moment, not two near-identical clips.
@@ -148,7 +197,7 @@ def build_plan(pre, offsets, peaks, camA, cfg):
         deduped.append(a)
     anchors = deduped
 
-    for idx, (T, peak, goal_cam) in enumerate(anchors):
+    for idx, (T, peak, goal_cam, roi_only) in enumerate(anchors):
         start = max(0.0, T - cfg.build_up_sec)
         hi = start + cfg.max_len_sec
         if idx + 1 < len(anchors):
@@ -177,7 +226,8 @@ def build_plan(pre, offsets, peaks, camA, cfg):
             segments = [seg(camA, start, end)]
         # T = goal-onset anchor (clip start / label); peak = loudness peak; goal_cam = net-ROI goal side
         clips.append({"T": float(T), "peak": float(peak),
-                      "goal_cam": goal_cam, "segments": segments})
+                      "goal_cam": goal_cam, "roi_only": bool(roi_only),
+                      "segments": segments})
     return {"fps": cfg.fps, "crossfade_sec": cfg.crossfade_sec,
             "output_width": pre["width"], "output_height": pre["height"],
             "hw_encode": cfg.hw_encode, "clips": clips}

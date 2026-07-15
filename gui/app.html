@@ -97,6 +97,36 @@
   .seg{display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:12px;margin:3px 0;}
   .clip.excluded{opacity:.45;}
   .t{color:var(--accent);font-variant-numeric:tabular-nums;}
+  .setup-grid{display:grid;grid-template-columns:1.1fr .9fr;gap:12px;align-items:start;}
+  .status-list{display:grid;gap:7px;margin-top:8px;}
+  .status-item{display:grid;grid-template-columns:22px 1fr;gap:8px;align-items:start;padding:8px;border:1px solid var(--line);border-radius:8px;background:#141a22;}
+  .status-item.ok{border-color:rgba(55,214,122,.55);} .status-item.warn{border-color:rgba(255,197,92,.55);} .status-item.err{border-color:rgba(255,107,107,.6);}
+  .status-ico{font-size:13px;text-align:center;margin-top:1px;}
+  .status-title{font-weight:600;font-size:13px;} .status-desc{font-size:12px;color:var(--mut);margin-top:1px;}
+  .cam-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-top:8px;}
+  .cam-box{border:1px solid var(--line);border-radius:8px;padding:8px;background:#11161d;font-size:12px;min-height:74px;}
+  .cam-box b{display:block;margin-bottom:3px;} .cam-box .files{color:var(--mut);font-size:11px;line-height:1.35;overflow:hidden;text-overflow:ellipsis;}
+  .choice{display:flex;gap:7px;flex-wrap:wrap;margin-top:8px;}
+  .choice .tbtn{padding:7px 10px;}
+  .next-box{border:1px solid rgba(78,161,255,.45);background:#121b27;border-radius:8px;padding:10px;margin-top:10px;}
+  .job-panel{flex-basis:100%;display:grid;grid-template-columns:140px 1fr auto;gap:8px;align-items:center;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:#111820;}
+  .job-panel[hidden]{display:none;}
+  .job-panel .prog{margin:0;height:9px;}
+  .job-title{font-size:12px;font-weight:600;}
+  .job-detail{font-size:12px;color:var(--mut);font-variant-numeric:tabular-nums;}
+  .modal-back{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:20;}
+  .modal-back[hidden]{display:none;}
+  .modal{width:min(520px,calc(100vw - 24px));background:var(--panel);border:1px solid var(--line);border-radius:8px;box-shadow:0 18px 60px rgba(0,0,0,.45);}
+  .modal .mh{padding:12px 14px;border-bottom:1px solid var(--line);font-weight:700;}
+  .modal .mb{padding:12px 14px;}
+  .modal .mf{display:flex;gap:8px;justify-content:flex-end;padding:10px 14px;border-top:1px solid var(--line);}
+  .field{display:grid;grid-template-columns:86px minmax(0,1fr);gap:8px;align-items:center;margin:8px 0;}
+  .field input{width:100%;}
+  .dir-row{display:flex;gap:8px;align-items:center;margin:7px 0;}
+  .dir-list{max-height:300px;overflow:auto;border:1px solid var(--line);border-radius:8px;background:#0e1116;padding:6px;}
+  .dir-item{display:flex;align-items:center;gap:8px;width:100%;text-align:left;margin:2px 0;padding:7px 8px;background:#151b23;border:1px solid var(--line);border-radius:7px;color:var(--fg);cursor:pointer;}
+  .dir-item:hover{border-color:var(--accent);}
+  @media(max-width:760px){.setup-grid{grid-template-columns:1fr;}}
 </style>
 </head>
 <body>
@@ -118,6 +148,10 @@ const api=async(p,o)=>{const r=await fetch(p,o);const j=await r.json().catch(()=
 const mmss=s=>`${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`;
 const round=(n,d=2)=>Math.round(n*10**d)/10**d;
 let STATE={root:'',games:[],rois_exists:false};
+const gameCams=g=>g.cameras||[
+  ...(g.cam1?[{id:'cam1',path:g.cam1,dur:g.dur1}]:[]),
+  ...(g.cam2?[{id:'cam2',path:g.cam2,dur:g.dur2}]:[])
+];
 
 document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{
   document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('on',x===b));
@@ -130,51 +164,120 @@ document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{
 async function loadState(){ STATE=await api('/api/state'); $('#root').textContent='📁 '+STATE.root; renderSetup(); }
 
 /* ---------- ① SETUP ---------- */
+let setupCamCount=2;
 function renderSetup(){
   const g=STATE.games;
+  const setup=STATE.setup||{config_exists:false,raw_exists:false,cameras:[]};
+  const cams=setup.cameras||[];
+  setupCamCount=Math.max(setupCamCount,cams.length||1);
+  const totalFiles=cams.reduce((a,c)=>a+c.count,0);
+  const maxCams=Math.max(1,...g.map(x=>gameCams(x).length));
+  const camHeaders=Array.from({length:maxCams},(_,i)=>`<th>cam${i+1}</th>`).join('');
+  const status=[
+    {ok:setup.config_exists,title:'프로젝트 확인',desc:setup.config_exists?'하이라이트 설정 파일을 찾았습니다.':'선택한 폴더에서 config.yaml을 찾지 못했습니다. autoPitch 프로젝트 폴더를 선택하세요.'},
+    {ok:setup.raw_exists&&cams.length,title:'카메라 폴더',desc:cams.length?`${cams.length}개 카메라 폴더가 준비되어 있습니다.`:'촬영 방식에 맞춰 아래 버튼으로 작업 공간을 준비하세요.'},
+    {ok:totalFiles>0,title:'원본 영상',desc:totalFiles?`${totalFiles}개 원본 영상을 찾았습니다.`:'준비된 cam 폴더에 경기 영상을 넣으면 자동으로 감지합니다.'},
+    {ok:g.length>0,warn:totalFiles>0&&!g.length,title:'경기 감지',desc:g.length?`${g.length}개 경기를 편집할 수 있습니다.`:(totalFiles?'영상은 있지만 아직 경기로 묶지 못했습니다. 여러 카메라 촬영본은 촬영시각 메타데이터가 필요합니다.':'영상이 들어오면 여기에 경기 목록이 표시됩니다.')},
+  ];
+  const next=STATE.setup_error
+    ? {title:'영상 정보를 읽지 못했습니다',desc:STATE.setup_error,actions:''}
+    : !setup.config_exists
+      ? {title:'프로젝트 폴더를 먼저 맞춰 주세요',desc:'상단 입력칸에 autoPitch 프로젝트 폴더를 지정하면 현재 상태를 다시 확인합니다.',actions:''}
+      : !totalFiles
+        ? {title:'원본 영상을 넣으면 시작됩니다',desc:'촬영 방식에 맞춰 작업 공간을 만든 뒤 Finder에서 각 cam 폴더에 영상을 넣고 새로고침하세요.',actions:'prepare'}
+        : g.length
+          ? {title:'편집 준비 완료',desc:STATE.rois_exists?'바로 하이라이트를 불러오거나, 필요하면 ROI를 다시 조정할 수 있습니다.':'골망 ROI를 잡으면 골 장면 앵커가 더 정확해집니다.',actions:'ready'}
+          : {title:'영상은 찾았지만 경기 목록이 비어 있습니다',desc:'단일캠은 cam1만 사용하세요. 여러 카메라는 각 cam 폴더의 파일 수와 촬영시각이 맞는지 확인한 뒤 새로고침하세요.',actions:'refresh'};
   $('#setup').innerHTML=`
-    <div class="card">
-      <div class="row"><b>프로젝트 루트</b></div>
-      <div class="row"><input id="rootIn" style="flex:1" value="${STATE.root}">
-        <button class="btn" id="setRoot">설정</button></div>
-      <div class="mut">루트에 <code>data/raw/cam1</code>, <code>data/raw/cam2</code>, <code>config.yaml</code>이 있어야 합니다.</div>
-    </div>
-    <div class="card">
-      <div class="row"><b>감지된 경기</b> <span class="mut">(촬영시각 페어링)</span> ${STATE.rois_exists?'<span class="mut">· net_rois.json ✓</span>':'<span class="mut">· ROI 미설정</span>'}</div>
-      ${g.length?`<table><tr><th>경기</th><th>cam1</th><th>cam2</th><th>겹침</th></tr>
-        ${g.map(x=>`<tr><td>${x.game}</td><td>${x.cam1.split('/').pop()}</td><td>${x.cam2.split('/').pop()}</td><td>${mmss(x.overlap)}</td></tr>`).join('')}</table>`
-        :'<div class="mut">경기 없음 — 루트를 확인하세요.</div>'}
+    <div class="setup-grid">
+      <div>
+        <div class="card">
+          <div class="row"><b>시작할 프로젝트</b><span class="mut">현재 폴더를 확인하고 필요한 단계만 보여줍니다.</span></div>
+          <div class="row"><input id="rootIn" style="flex:1" value="${STATE.root}">
+            <button class="btn" id="setRoot">확인</button>
+            <button class="btn" id="reloadState">새로고침</button></div>
+          <div class="status-list">
+            ${status.map(s=>`<div class="status-item ${s.ok?'ok':(s.warn?'warn':'err')}">
+              <div class="status-ico">${s.ok?'✓':(s.warn?'!':'·')}</div>
+              <div><div class="status-title">${s.title}</div><div class="status-desc">${s.desc}</div></div>
+            </div>`).join('')}
+          </div>
+          <div class="next-box">
+            <div class="status-title">${next.title}</div>
+            <div class="status-desc">${next.desc}</div>
+            ${next.actions==='prepare'?`<div class="choice">
+              ${[1,2,3,4].map(n=>`<button class="tbtn ${setupCamCount===n?'on':''}" data-cams="${n}">${n}대 촬영</button>`).join('')}
+              <button class="btn primary" id="prepFolders">작업 공간 준비</button>
+            </div>`:''}
+            ${next.actions==='ready'?`<div class="choice">
+              <button class="btn primary" id="goEdit">편집으로 이동</button>
+              <button class="btn" id="goCal">ROI 조정</button>
+            </div>`:''}
+            ${next.actions==='refresh'?`<div class="choice"><button class="btn primary" id="refreshOnly">다시 확인</button></div>`:''}
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="card">
+          <div class="row"><b>카메라 입력</b><span class="mut">${totalFiles}개 파일</span></div>
+          ${cams.length?`<div class="cam-grid">${cams.map(c=>`<div class="cam-box"><b>${c.id}</b><div>${c.count}개 영상</div><div class="files">${c.files.length?c.files.join('<br>'):'비어 있음'}</div></div>`).join('')}</div>`
+            :'<div class="mut">아직 카메라 폴더가 없습니다. 촬영 방식 선택 후 작업 공간을 준비하세요.</div>'}
+        </div>
+        <div class="card">
+          <div class="row"><b>감지된 경기</b> ${STATE.rois_exists?'<span class="mut">ROI 저장됨</span>':'<span class="mut">ROI 미설정</span>'}</div>
+          ${g.length?`<table><tr><th>경기</th>${camHeaders}<th>겹침</th></tr>
+            ${g.map(x=>{const gc=gameCams(x);return `<tr><td>${x.game}</td>${Array.from({length:maxCams},(_,i)=>`<td>${gc[i]?gc[i].path.split('/').pop():''}</td>`).join('')}<td>${mmss(x.overlap)}</td></tr>`;}).join('')}</table>`
+            :'<div class="mut">아직 편집 가능한 경기가 없습니다.</div>'}
+        </div>
+      </div>
     </div>`;
+  const refresh=async()=>{STATE=await api('/api/state');$('#root').textContent='📁 '+STATE.root;renderSetup();};
   $('#setRoot').onclick=async()=>{ try{ STATE=await api('/api/root',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:$('#rootIn').value})}); $('#root').textContent='📁 '+STATE.root; renderSetup(); }catch(e){alert(e.message);} };
+  $('#reloadState').onclick=()=>refresh().catch(e=>alert(e.message));
+  $('#refreshOnly')?.addEventListener('click',()=>refresh().catch(e=>alert(e.message)));
+  $('#goEdit')?.addEventListener('click',()=>document.querySelector('[data-tab="edit"]').click());
+  $('#goCal')?.addEventListener('click',()=>document.querySelector('[data-tab="cal"]').click());
+  document.querySelectorAll('[data-cams]').forEach(b=>b.onclick=()=>{setupCamCount=parseInt(b.dataset.cams,10);renderSetup();});
+  $('#prepFolders')?.addEventListener('click',async()=>{try{STATE=await api('/api/prepare',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cams:setupCamCount})});$('#root').textContent='📁 '+STATE.root;renderSetup();}catch(e){alert(e.message);}});
 }
 
 /* ---------- ② CALIBRATION ---------- */
 let calImg=null, calBox=null, calDrag=null, rois={};
 async function renderCal(){
   rois=await api('/api/rois').catch(()=>({}));
-  const cams=[...new Set(STATE.games.flatMap(g=>[g.cam1,g.cam2]))];
-  const keyGuess=p=>{const n=p.split('/').pop(); return (n.match(/^[A-Za-z]+/)||['cam'])[0];};
+  const camItems=[];
+  const seen=new Set();
+  STATE.games.flatMap(gameCams).forEach(c=>{if(c.path&&!seen.has(c.path)){seen.add(c.path);camItems.push(c);}});
+  const cams=camItems.map(c=>c.path);
+  const camByPath=Object.fromEntries(camItems.map(c=>[c.path,c]));
+  const camId=p=>(camByPath[p]&&camByPath[p].id)||'cam1';
+  const keyGuess=p=>p;
+  const camPathLabel=p=>`${camId(p)} · ${p.split('/').pop()}`;
   $('#cal').innerHTML=`
     <div class="card">
-      <div class="row"><b>골망 ROI 캘리브레이션</b> <span class="mut">카메라에 <b>가까운 골망 하나만</b> 드래그로 박스. 캠을 바꾸면 그 캠 프레임·저장된 박스가 바로 뜹니다. 각 캠 1개씩.</span></div>
+      <div class="row"><b>골망 ROI 캘리브레이션</b> <span class="mut">파일마다 가까운 골망 하나를 드래그로 박스. 경기·카메라별 프레임 차이를 따로 저장합니다.</span></div>
       <div class="row">
         <select id="calCam"></select>
         <label class="mut">시각(초) <input id="calT" type="number" value="60" step="5"></label>
         <button class="btn" id="calGrab">프레임 새로고침</button>
-        <label class="mut">키 <input id="calKey" style="width:80px"></label>
+        <input id="calKey" type="hidden">
         <span id="calStat" class="mut"></span>
         <button class="btn primary" id="calSave" style="margin-left:auto">net_rois.json 저장</button>
       </div>
       <canvas id="calCv" width="720" height="405"></canvas>
-      <div class="mut" style="margin:6px 0 0">골망을 드래그하면 <b>자동 저장</b>됩니다. 다시 그리면 갱신, 아래 표에서 삭제.</div>
+      <div class="mut" style="margin:6px 0 0">골망을 드래그하면 <b>현재 파일 전용 ROI</b>로 자동 저장됩니다. 다시 그리면 갱신, 아래 표에서 삭제.</div>
       <table id="calTbl"></table>
     </div>`;
   const cv=$('#calCv'),ctx=cv.getContext('2d');
   const curKey=()=>$('#calKey').value.trim();
   const calMsg=(txt,color)=>{ctx.fillStyle='#0e1116';ctx.fillRect(0,0,cv.width,cv.height);ctx.fillStyle=color;ctx.font='14px sans-serif';ctx.fillText(txt,20,cv.height/2);};
-  const fillCams=()=>{$('#calCam').innerHTML=cams.map(c=>{const done=rois[keyGuess(c)]?' ✓':'';return `<option value="${c}">${c.split('/').pop()}${done}</option>`;}).join('');};
+  const fillCams=()=>{
+    const sel=$('#calCam'), keep=sel.value;
+    sel.innerHTML=cams.map(c=>{const done=rois[keyGuess(c)]?' ✓':'';return `<option value="${c}">${camPathLabel(c)}${done}</option>`;}).join('');
+    if(keep&&cams.includes(keep))sel.value=keep;
+  };
   const restoreBox=()=>{const v=rois[curKey()];calBox=v?{x:v[0]*cv.width,y:v[1]*cv.height,w:v[2]*cv.width,h:v[3]*cv.height}:null;};
-  const updStat=()=>{$('#calStat').textContent=rois[curKey()]?'✓ 이 캠 저장됨':'미설정 — 골망을 드래그';};
+  const updStat=()=>{$('#calStat').textContent=rois[curKey()]?'✓ 이 파일 저장됨':'미설정 — 골망을 드래그';};
   window.drawCal=()=>{ctx.clearRect(0,0,cv.width,cv.height);
     if(calImg)ctx.drawImage(calImg,0,0,cv.width,cv.height);
     if(calBox){ctx.strokeStyle='#37d67a';ctx.lineWidth=2;ctx.strokeRect(calBox.x,calBox.y,calBox.w,calBox.h);ctx.fillStyle='rgba(55,214,122,.15)';ctx.fillRect(calBox.x,calBox.y,calBox.w,calBox.h);}};
@@ -206,12 +309,12 @@ async function renderCal(){
     // save to the key of the frame ACTUALLY on screen, never a stale #calKey
     if(calDrag&&calBox&&calBox.w>6&&calBox.h>6&&calShownKey){
       rois[calShownKey]=[round(calBox.x/cv.width,4),round(calBox.y/cv.height,4),round(calBox.w/cv.width,4),round(calBox.h/cv.height,4)];
-      calTbl();fillCams();updStat();}
+      calTbl();fillCams();$('#calKey').value=calShownKey;updStat();}
     calDrag=null;
   };
   window.calTbl=()=>{const t=$('#calTbl');
     const rows=Object.entries(rois).map(([k,v])=>`<tr${k===curKey()?' style="background:#232b34"':''}><td><b>${k}</b></td>${v.map(n=>`<td>${n}</td>`).join('')}<td><button class="btn sm" data-del="${k}">삭제</button></td></tr>`).join('');
-    t.innerHTML='<tr><th>키</th><th>x</th><th>y</th><th>w</th><th>h</th><th></th></tr>'+(rows||'<tr><td colspan="6" class="mut">아직 없음 — 캠 선택 후 골망을 드래그하세요</td></tr>');
+    t.innerHTML='<tr><th>파일</th><th>x</th><th>y</th><th>w</th><th>h</th><th></th></tr>'+(rows||'<tr><td colspan="6" class="mut">아직 없음 — 파일 선택 후 골망을 드래그하세요</td></tr>');
     t.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{const k=b.dataset.del;delete rois[k];if(k===curKey())calBox=null;calTbl();fillCams();drawCal();updStat();});};
   $('#calSave').onclick=async()=>{
     try{await api('/api/rois',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({rois})});$('#calStat').textContent='✓ net_rois.json 저장 완료';STATE.rois_exists=true;}
@@ -224,10 +327,14 @@ let plan=null, clips=[], selId=null, nextId=1;
 let PXPS=9, snapOn=true, autoFit=true;
 let playN=0, playing=false, curIdx=0, curSeg=0, rafId=null, lastTs=0, switching=false;
 let hist=[], future=[];
-const camName=p=>{const n=(p||'').split('/').pop();return (n.match(/^[A-Za-z0-9]+/)||['cam'])[0];};
+const camName=p=>{
+  if(plan&&plan.camera_labels&&plan.camera_labels[p])return plan.camera_labels[p];
+  const n=(p||'').split('/').pop();
+  return (n.match(/^cam\d+/i)||n.match(/^[A-Za-z0-9]+/)||['cam'])[0].toLowerCase();
+};
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 
-/* ---- sequence model: included clips in order; u inside clip = seg0 span then seg1 span ---- */
+/* ---- sequence model: included clips in order; u walks through every segment ---- */
 const segDur=g=>g.src_out-g.src_in;
 const clipDur=c=>c.data.segments.reduce((a,g)=>a+segDur(g),0);
 const seqClips=()=>clips.filter(c=>c.include);
@@ -238,15 +345,21 @@ function locate(t){ // seq time -> {idx, seg, src, rel}
   for(let i=0;i<sc.length;i++){
     const c=sc[i], d=clipDur(c);
     if(t<x+d||i===sc.length-1){
-      const u=clamp(t-x,0,d), s=c.data.segments, d0=segDur(s[0]);
-      if(u<d0||s.length===1)return{idx:i,seg:0,src:s[0].src_in+Math.min(u,d0),rel:s[0].src_rel,clip:c};
-      return{idx:i,seg:1,src:s[1].src_in+(u-d0),rel:s[1].src_rel,clip:c};
+      let u=clamp(t-x,0,d), acc=0;
+      const s=c.data.segments;
+      for(let j=0;j<s.length;j++){
+        const sd=segDur(s[j]);
+        if(u<=acc+sd||j===s.length-1){
+          return{idx:i,seg:j,src:s[j].src_in+Math.min(Math.max(0,u-acc),sd),rel:s[j].src_rel,clip:c};
+        }
+        acc+=sd;
+      }
     }
     x+=d;
   }
   return null;
 }
-function editPoints(){const pts=[0];let x=0;for(const c of seqClips()){const s=c.data.segments;if(s.length>1)pts.push(x+segDur(s[0]));x+=clipDur(c);pts.push(x);}return pts;}
+function editPoints(){const pts=[0];let x=0;for(const c of seqClips()){let u=0;const s=c.data.segments;for(let i=0;i<s.length-1;i++){u+=segDur(s[i]);pts.push(x+u);}x+=clipDur(c);pts.push(x);}return pts;}
 
 /* ---- undo/redo ---- */
 const snapState=()=>clips.map(c=>({id:c.id,include:c.include,data:JSON.parse(JSON.stringify(c.data))}));
@@ -271,12 +384,22 @@ async function renderEdit(){
       <button class="tbtn" id="nRedo" title="Cmd+Shift+Z" disabled>↪︎</button>
       <span id="edStat" class="mut" style="margin-left:6px"></span>
       <span style="margin-left:auto"></span>
-      <input id="edOut" value="${window._edOut||'data/output/gui'}" style="width:140px" title="출력 폴더">
-      <input id="edBgm" placeholder="BGM (선택)" value="${window._edBgm||''}" style="width:120px">
+      <label class="mut" style="font-size:12px">출력 폴더 <input id="edOut" value="${window._edOut||'data/output/gui'}" style="width:160px" title="프로젝트 안의 출력 폴더"></label>
+      <button class="tbtn" id="edOutPick">선택</button>
+      <button class="tbtn" id="edOutDefault" title="기본 출력 폴더로 설정">기본</button>
+      <input id="edBgm" placeholder="BGM 없음" value="${window._edBgm||''}" style="width:150px" readonly title="선택된 BGM 파일">
+      <button class="tbtn" id="edBgmPick">BGM 선택</button>
+      <button class="tbtn" id="edBgmClear" title="BGM 제거">해제</button>
+      <input id="edBgmFile" type="file" accept="audio/*,.mp3,.m4a,.aac,.wav,.flac,.ogg,.mp4,.mov" hidden>
       <input id="edVol" type="range" min="0" max="0.5" step="0.05" value="${window._edVol||0.15}" style="width:70px" title="BGM 음량">
       <label class="mut" style="font-size:12px">전환(초) <input id="edXf" type="number" step="0.1" min="0" style="width:56px" title="앵글 전환 크로스페이드 (0 = 하드컷)"></label>
       <button class="btn primary" id="edRender">렌더</button>
       <span id="edRstat" class="mut" style="font-size:12px"></span>
+      <div class="job-panel" id="jobPanel" hidden>
+        <div class="job-title" id="jobTitle">작업</div>
+        <div class="prog"><i id="jobProg"></i></div>
+        <div class="job-detail" id="jobDetail">0%</div>
+      </div>
     </div>
     <div class="nle-top">
       <div class="npane"><div class="hd">라이브러리 — 하이라이트 <span id="libN"></span></div><div class="bd" id="nLib"></div></div>
@@ -311,22 +434,175 @@ async function renderEdit(){
       </div></div>
       <div class="prog" id="edProgWrap" hidden style="margin:0"><i id="edProg"></i></div>
     </div>
+    <div class="modal-back" id="renderModal" hidden>
+      <div class="modal">
+        <div class="mh">렌더 설정</div>
+        <div class="mb">
+          <div class="field"><label class="mut">출력 폴더</label><div class="row" style="margin:0"><input id="renderOut" value="${window._edOut||'data/output/gui'}" style="flex:1"><button class="tbtn" id="renderOutPick">선택</button></div></div>
+          <div class="field"><label class="mut">파일 이름</label><input id="renderFile" value="${window._edFile||'highlight_all.mp4'}"></div>
+          <div class="field"><label class="mut">BGM</label><input id="renderBgm" value="${window._edBgm||''}" readonly placeholder="선택 안 함"></div>
+          <div class="field"><label class="mut">BGM 음량</label><input id="renderVol" type="number" min="0" max="0.5" step="0.05" value="${window._edVol||0.15}"></div>
+          <div class="field"><label class="mut">최종 FPS</label><select id="renderFps"><option value="30">30 fps</option><option value="60">60 fps</option></select></div>
+          <div class="field"><label class="mut">전환(초)</label><input id="renderXf" type="number" min="0" step="0.1" value="0"></div>
+          <div class="field"><label class="mut">후행 여백</label><input id="renderTail" type="number" min="0" max="8" step="0.5" value="${window._edTail??2}"></div>
+          <div class="mut" id="renderSummary" style="margin-top:8px"></div>
+        </div>
+        <div class="mf">
+          <button class="btn" id="renderCancel">취소</button>
+          <button class="btn primary" id="renderStart">렌더 시작</button>
+        </div>
+      </div>
+    </div>
+    <div class="modal-back" id="dirModal" hidden>
+      <div class="modal">
+        <div class="mh">출력 폴더 선택</div>
+        <div class="mb">
+          <div class="dir-row">
+            <input id="dirPath" readonly style="flex:1">
+            <button class="tbtn" id="dirUp">위로</button>
+          </div>
+          <div class="dir-list" id="dirList"></div>
+          <div class="dir-row">
+            <input id="dirNew" placeholder="새 폴더 이름" style="flex:1">
+            <button class="tbtn" id="dirMake">새 폴더</button>
+          </div>
+          <div class="mut">프로젝트 루트 안의 폴더만 선택할 수 있습니다.</div>
+        </div>
+        <div class="mf">
+          <button class="btn" id="dirCancel">취소</button>
+          <button class="btn primary" id="dirChoose">이 폴더 선택</button>
+        </div>
+      </div>
+    </div>
   </div>`;
   bindShell();
+  const setJob=(title,stage,percent)=>{
+    const p=clamp(Math.round(percent||0),0,100);
+    $('#jobPanel').hidden=false;$('#jobTitle').textContent=title;
+    $('#jobProg').style.width=p+'%';$('#jobDetail').textContent=`${p}% · ${stage||''}`;
+  };
+  const hideJob=()=>{$('#jobPanel').hidden=true;};
+  window.setJobPanel=setJob;window.hideJobPanel=hideJob;
+  const applyLoadedPlan=loaded=>{
+    plan=loaded;
+    clips=plan.clips.map(d=>({id:nextId++,data:d,include:true}));
+    hist=[];future=[];selId=clips.length?clips[0].id:null;playN=0;autoFit=true;
+    $('#edStat').textContent=plan.cached?'캐시 로드됨':`${plan.clips.length}개 하이라이트 감지`;
+    $('#edXf').value=plan.crossfade_sec;
+    $('#edXf').onchange=e=>{plan.crossfade_sec=Math.max(0,parseFloat(e.target.value)||0);renderTimeline();};
+    renderAll();seekSeq(0);
+  };
   const load=async fresh=>{
-    $('#edStat').textContent=fresh?'다시 분석 중… (수십 초)':'불러오는 중…';
-    try{plan=await api('/api/plan?game='+$('#edGame').value+(fresh?'&fresh=1':''));
-      clips=plan.clips.map(d=>({id:nextId++,data:d,include:true}));
-      hist=[];future=[];selId=clips.length?clips[0].id:null;playN=0;autoFit=true;
-      $('#edStat').textContent=plan.cached?'캐시 로드됨':'';
-      $('#edXf').value=plan.crossfade_sec;
-      $('#edXf').onchange=e=>{plan.crossfade_sec=Math.max(0,parseFloat(e.target.value)||0);renderTimeline();};
-      renderAll();seekSeq(0);}
+    $('#edStat').textContent=fresh?'다시 분석 중':'불러오는 중';
+    setJob('분석', fresh?'새 분석 시작':'캐시 확인 중', 0);
+    try{
+      const r=await api('/api/plan_start',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({game:parseInt($('#edGame').value,10),fresh})});
+      const poll=async()=>{
+        const s=await api('/api/plan_status?job='+r.job);
+        if(s.status==='running'){
+          setJob('분석',s.stage,s.percent);
+          $('#edStat').textContent=s.stage||'분석 중';
+          setTimeout(poll,600);
+        }else if(s.status==='done'){
+          setJob('분석','완료',100);
+          applyLoadedPlan(s.plan);
+          setTimeout(hideJob,900);
+        }else{
+          $('#edStat').textContent='오류: '+(s.error||'unknown');
+          setJob('분석 실패',s.error||'unknown',100);
+        }
+      };
+      poll();
+    }
     catch(e){$('#edStat').textContent='오류: '+e.message;}
   };
   $('#edLoad').onclick=()=>load(false);
   $('#edFresh').onclick=()=>load(true);
-  $('#edRender').onclick=startRender;
+  let dirTarget=null, dirCur='';
+  const chooseNativeDir=async(target,initial)=>{
+    try{
+      const r=await api('/api/choose_dir?path='+encodeURIComponent(initial||''));
+      if(r.path){target.value=r.path;return true;}
+    }catch(e){$('#edRstat').textContent='기본 폴더 선택창을 열지 못해 앱 내부 선택창을 사용합니다.';}
+    return false;
+  };
+  const openDirPicker=async(target,initial)=>{
+    if(await chooseNativeDir(target,initial))return;
+    dirTarget=target;dirCur=(initial&&initial[0]!=='/'?initial:'data/output/gui').replace(/^\/+/,'').replace(/\/+$/,'');
+    $('#dirModal').hidden=false;await loadDir(dirCur);
+  };
+  const closeDirPicker=()=>{$('#dirModal').hidden=true;dirTarget=null;};
+  const loadDir=async(path)=>{
+    try{
+      const d=await api('/api/dirs?path='+encodeURIComponent(path||''));
+      dirCur=d.path||'';$('#dirPath').value=dirCur||'.';$('#dirUp').disabled=d.parent===null;
+      $('#dirList').innerHTML=(d.parent!==null?`<button class="dir-item" data-dir="${d.parent}">↥ ..</button>`:'')+
+        d.dirs.map(name=>`<button class="dir-item" data-dir="${dirCur?dirCur+'/':''}${name}">📁 ${name}</button>`).join('');
+      $('#dirList').querySelectorAll('[data-dir]').forEach(b=>b.onclick=()=>loadDir(b.dataset.dir));
+    }catch(e){$('#edRstat').textContent='폴더 열기 실패: '+e.message;}
+  };
+  $('#edOutPick').onclick=()=>openDirPicker($('#edOut'),$('#edOut').value);
+  $('#renderOutPick').onclick=()=>openDirPicker($('#renderOut'),$('#renderOut').value);
+  $('#dirCancel').onclick=closeDirPicker;
+  $('#dirModal').addEventListener('mousedown',e=>{if(e.target.id==='dirModal')closeDirPicker();});
+  $('#dirUp').onclick=async()=>{const d=await api('/api/dirs?path='+encodeURIComponent(dirCur)); if(d.parent!==null)loadDir(d.parent);};
+  $('#dirMake').onclick=async()=>{
+    const name=$('#dirNew').value.trim();if(!name)return;
+    try{await api('/api/mkdir',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({parent:dirCur,name})});$('#dirNew').value='';loadDir(dirCur);}
+    catch(e){$('#edRstat').textContent='폴더 생성 실패: '+e.message;}
+  };
+  $('#dirChoose').onclick=()=>{if(dirTarget)dirTarget.value=dirCur||'.';closeDirPicker();};
+  const openRenderModal=()=>{
+    if(!plan){$('#edRstat').textContent='먼저 경기를 불러오세요';return;}
+    const included=seqClips().length;
+    if(!included){$('#edRstat').textContent='포함된 클립이 없습니다';return;}
+    $('#renderOut').value=$('#edOut').value||'data/output/gui';
+    $('#renderFile').value=window._edFile||`game${$('#edGame').value}_highlight.mp4`;
+    $('#renderBgm').value=$('#edBgm').value||'';
+    $('#renderVol').value=$('#edVol').value||0.15;
+    $('#renderFps').value=String(window._edFps||60);
+    $('#renderXf').value=$('#edXf').value||0;
+    $('#renderTail').value=window._edTail??2;
+    $('#renderSummary').textContent=`포함 클립 ${included}개 · 예상 합계 ${fmtT(seqDur())} · 후행 여백은 각 클립 마지막에 추가됩니다.`;
+    $('#renderModal').hidden=false;
+  };
+  const closeRenderModal=()=>{$('#renderModal').hidden=true;};
+  $('#edRender').onclick=openRenderModal;
+  $('#renderCancel').onclick=closeRenderModal;
+  $('#renderModal').addEventListener('mousedown',e=>{if(e.target.id==='renderModal')closeRenderModal();});
+  $('#renderStart').onclick=()=>{
+    $('#edOut').value=$('#renderOut').value||'data/output/gui';
+    $('#edBgm').value=$('#renderBgm').value||'';
+    $('#edVol').value=$('#renderVol').value||0.15;
+    window._edFps=parseInt($('#renderFps').value,10)||60;
+    $('#edXf').value=$('#renderXf').value||0;
+    window._edFile=$('#renderFile').value||'highlight_all.mp4';
+    window._edTail=Math.max(0,parseFloat($('#renderTail').value)||0);
+    closeRenderModal();
+    startRender();
+  };
+  $('#edOutDefault').onclick=()=>{$('#edOut').value='data/output/gui';};
+  $('#edBgmPick').onclick=()=>$('#edBgmFile').click();
+  $('#edBgmClear').onclick=()=>{window._edBgm='';$('#edBgm').value='';$('#edRstat').textContent='BGM 해제';};
+  $('#edBgmFile').onchange=async e=>{
+    const file=e.target.files&&e.target.files[0];if(!file)return;
+    try{
+      setJob('BGM','파일 복사 중',10);
+      const r=await fetch('/api/bgm_upload?name='+encodeURIComponent(file.name),{
+        method:'POST',
+        headers:{'Content-Type':file.type||'application/octet-stream'},
+        body:file,
+      });
+      const j=await r.json().catch(()=>({}));
+      if(!r.ok)throw new Error(j.error||r.status);
+      window._edBgm=j.path;$('#edBgm').value=j.path;$('#edRstat').textContent='BGM 선택됨';
+      setJob('BGM','선택 완료',100);setTimeout(hideJob,900);
+    }catch(err){
+      $('#edRstat').textContent='BGM 선택 실패: '+err.message;
+      setJob('BGM 실패',err.message,100);
+    }finally{e.target.value='';}
+  };
   if(plan){$('#edGame').value=plan.game;renderAll();seekSeq(playN);}
 }
 
@@ -356,12 +632,13 @@ function playTick(ts){
   if(!switching&&!v.seeking){   // a pending seek still reports the OLD time — don't cascade boundaries
     const c=sc[curIdx],segs=c.data.segments,cur=v.currentTime;
     if(cur>=segs[curSeg].src_out-0.03){
-      if(curSeg===0&&segs.length>1)enter(curIdx,1,true);
+      if(curSeg+1<segs.length)enter(curIdx,curSeg+1,true);
       else if(curIdx+1<sc.length){enter(curIdx+1,0,true);playN=offsetOf(curIdx);}
       else{stopPlay();playN=seqDur();updatePh();return;}
     }else{
       playN+=dt;
-      const u=curSeg===0?cur-segs[0].src_in:segDur(segs[0])+(cur-segs[1].src_in);
+      const before=segs.slice(0,curSeg).reduce((a,g)=>a+segDur(g),0);
+      const u=before+(cur-segs[curSeg].src_in);
       const real=offsetOf(curIdx)+clamp(u,0,clipDur(c));
       if(Math.abs(real-playN)>0.15)playN=real;
       playN=Math.min(playN,offsetOf(curIdx)+clipDur(c));
@@ -404,15 +681,15 @@ function renderTimeline(){
   let x=0;
   sc.forEach((c,i)=>{
     const d=clipDur(c),w=Math.max(16,d*PXPS-2),segs=c.data.segments,two=segs.length>1;
-    const d0px=segDur(segs[0])/d*w;
+    let sx=0;
+    const segHtml=segs.map((sg,si)=>{const sw=segDur(sg)/d*w,left=sx;sx+=sw;return `<div class="nseg s${si%2}" style="left:${left}px;width:${sw}px"></div>${si<segs.length-1?`<div class="ncut" style="left:${sx}px" title="앵글 전환 — 크로스페이드 ${plan.crossfade_sec>0?plan.crossfade_sec+'s':'없음(하드컷)'}"></div>`:''}`;}).join('');
     const el=document.createElement('div');
     el.className='nclip'+(c.id===selId?' selected':'');
     el.style.left=x+'px';el.style.width=w+'px';el.dataset.id=c.id;el.draggable=true;
     el.innerHTML=`<canvas class="nwave"></canvas>
-      <div class="nseg s0" style="left:0;width:${d0px}px"></div>
-      ${two?`<div class="nseg s1" style="left:${d0px}px;right:0"></div><div class="ncut" style="left:${d0px}px" title="앵글 전환 — 크로스페이드 ${plan.crossfade_sec>0?plan.crossfade_sec+'s':'없음(하드컷)'}"></div>`:''}
-      <div class="nlabel">${mmss(c.data.T)} · ${round(d,1)}s${c.data.goal_cam?' · 🥅'+camName(c.data.goal_cam):''}</div>
-      <div class="ncams">${two?camName(segs[0].cam)+' → '+camName(segs[1].cam):camName(segs[0].cam)}</div>
+      ${segHtml}
+      <div class="nlabel">${mmss(c.data.T)} · ${round(d,1)}s${c.data.goal_cam?' · 🥅'+camName(c.data.goal_cam):''}${c.data.roi_only?' · <span style=\"color:#f0b429\">ROI?</span>':''}</div>
+      <div class="ncams">${segs.map(s=>camName(s.cam)).join(' → ')}</div>
       <div class="trim l"></div><div class="trim r"></div>
       <button class="ndel" title="제외 (⌫)">✕</button>`;
     lane.appendChild(el);
@@ -504,7 +781,7 @@ function renderLib(){
     const d=c.data,el=document.createElement('div');
     el.className='lib-item'+(c.id===selId?' sel':'')+(c.include?'':' off');
     el.innerHTML=`<span class="t">${mmss(d.T)}</span>
-      <span class="mut">${d.segments.length>1?camName(d.segments[0].cam)+'→'+camName(d.segments[1].cam):camName(d.segments[0].cam)} · ${round(clipDur(c),1)}s</span>
+      <span class="mut">${d.segments.map(s=>camName(s.cam)).join('→')} · ${round(clipDur(c),1)}s</span>
       <button class="tbtn" data-tog>${c.include?'제외':'포함'}</button>`;
     el.onclick=e=>{
       if(e.target.dataset&&'tog'in e.target.dataset){pushHist();c.include=!c.include;fixSel();renderAll();return;}
@@ -514,7 +791,7 @@ function renderLib(){
     lib.appendChild(el);
   });
 }
-/* ---- angle configuration: single-cam or either two-cam order ----
+/* ---- angle configuration: single-cam or ordered two-angle setup ----
    All cams share one real-time axis via plan.offsets (camA-time = src - offset),
    so segments can be rebuilt for any cam order without losing the moment. */
 function camMap(){
@@ -544,7 +821,8 @@ function renderInsp(){
   box.innerHTML=`
     <div class="sec"><div class="lbl">선택한 하이라이트</div>
       <div class="kv"><b>${mmss(c.data.T)}</b><span class="mut">peak ${round(c.data.peak,1)}${c.data.goal_cam?' · 골쪽 '+camName(c.data.goal_cam):''}</span></div>
-      <div class="kv mut">${two?camName(segs[0].cam)+' → '+camName(segs[1].cam):camName(segs[0].cam)} · ${round(clipDur(c),1)}s</div>
+      ${c.data.roi_only?`<div class="kv" style="color:#f0b429;font-size:11px">⚠ ROI 스캔 감지 — 함성 없음${c.data.roi_verdict?` · AI 판정 ${c.data.roi_verdict.is_goal?'골':'골 아님'} (${Math.round((c.data.roi_verdict.confidence||0)*100)}%)`:' · 미검증, 영상으로 확인하세요'}</div>`:''}
+      <div class="kv mut">${segs.map(s=>camName(s.cam)).join(' → ')} · ${round(clipDur(c),1)}s</div>
     </div>
     <div class="sec"><div class="lbl">앵글 구성</div><div class="kv" id="angRow"></div>
       <div class="kv mut" style="font-size:11px">전환 시점은 타임라인의 초록 핸들로 조정</div></div>
@@ -562,7 +840,7 @@ function renderInsp(){
       <button class="btn half" data-act="dup" title="같은 하이라이트를 한 번 더">복제</button>
     </div>`;
   const apply=f=>{pushHist();f();renderAll();};
-  // angle buttons: each cam solo + both two-cam orders; active config highlighted
+  // angle buttons: each cam solo + every two-cam order; works for cam1..cam4.
   const ang=box.querySelector('#angRow'),cams=Object.keys(camMap()),cur=currentOrder(c).join('→');
   const orders=[...cams.map(x=>[x]),...(cams.length>1?cams.flatMap(x=>cams.filter(y=>y!==x).map(y=>[x,y])):[])];
   ang.innerHTML=orders.map(o=>{
@@ -657,22 +935,33 @@ function bindShell(){
 /* ---- render job ---- */
 async function startRender(){
   window._edOut=$('#edOut').value;window._edBgm=$('#edBgm').value;window._edVol=$('#edVol').value;
-  const out={...plan,crossfade_sec:Math.max(0,parseFloat($('#edXf').value)||0),clips:seqClips().map(c=>c.data)};
+  const tail=Math.max(0,parseFloat(window._edTail)||0);
+  const renderClips=seqClips().map(c=>JSON.parse(JSON.stringify(c.data)));
+  if(tail>0){
+    renderClips.forEach(c=>{const g=c.segments[c.segments.length-1];g.src_out+=tail;});
+  }
+  const out={...plan,fps:parseInt(window._edFps,10)||60,crossfade_sec:Math.max(0,parseFloat($('#edXf').value)||0),clips:renderClips,render_tail_sec:tail};
   if(!out.clips.length){$('#edRstat').textContent='포함된 클립이 없습니다';return;}
   $('#edProgWrap').hidden=false;$('#edProg').style.width='0%';$('#edRstat').textContent='렌더 시작…';
+  if(window.setJobPanel)window.setJobPanel('렌더','렌더 준비 중',0);
   try{
     const r=await api('/api/render',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({plan:out,out:window._edOut,bgm:window._edBgm||null,bgm_volume:parseFloat(window._edVol)})});
+      body:JSON.stringify({plan:out,out:window._edOut,filename:window._edFile,bgm:window._edBgm||null,bgm_volume:parseFloat(window._edVol)})});
     const poll=async()=>{
       try{
         const s=await api('/api/render_status?job='+r.job);
         if(s.status==='running'){const[i,n]=s.progress||[0,1];
-          $('#edProg').style.width=Math.round(i/Math.max(1,n)*100)+'%';
-          $('#edRstat').textContent=i>=n?`합본·BGM 처리 중…`:`렌더 ${i}/${n}`;
+          const pct=s.percent??Math.round(i/Math.max(1,n)*100);
+          $('#edProg').style.width=pct+'%';
+          $('#edRstat').textContent=s.stage||`렌더 ${i}/${n}`;
+          if(window.setJobPanel)window.setJobPanel('렌더',s.stage||`렌더 ${i}/${n}`,pct);
           setTimeout(poll,1000);}
         else if(s.status==='done'){$('#edProg').style.width='100%';
-          $('#edRstat').textContent=`✓ ${s.clips.length}클립 + 합본 → ${window._edOut}`;}
-        else $('#edRstat').textContent='오류: '+(s.error||'unknown');
+          $('#edRstat').textContent=`✓ 최종 파일 → ${s.output||window._edOut}`;
+          if(window.setJobPanel)window.setJobPanel('렌더','완료',100);
+          if(window.hideJobPanel)setTimeout(window.hideJobPanel,1200);}
+        else {$('#edRstat').textContent='오류: '+(s.error||'unknown');
+          if(window.setJobPanel)window.setJobPanel('렌더 실패',s.error||'unknown',100);}
       }catch(e){$('#edRstat').textContent='상태 조회 실패: '+e.message;}
     };
     poll();

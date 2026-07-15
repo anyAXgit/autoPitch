@@ -28,6 +28,13 @@ class LocateConfig:
     post_sec: float = 0.5
     fps: float = 10.0               # motion sampling rate in the window
     min_prominence: float = 6.0     # spike must exceed window median by this many MADs
+    scan_enabled: bool = False      # add ROI-only candidates; expensive, run only when requested/cached
+    scan_min_prominence: float = 10.0  # stricter threshold for ROI-only clip candidates
+    scan_fps: float = 2.0           # cheaper full-game ROI-only scan rate
+    scan_frame_px: int = 32         # cheaper full-game ROI-only frame size
+    scan_max_impulse_sec: float = 1.2   # Tier-0 gate: net-hit motion must be a brief impulse
+    scan_verify: str = "shape"      # ROI-only verification: shape (free) | vlm (net-crop judge)
+    scan_cache: str = "data/_gui/roi_scan_cache.json"   # whole-match scan results cache
     frame_px: int = 64              # ROI downscaled to frame_px^2 for the diff
 
 
@@ -104,6 +111,13 @@ def load_config(path: str = "config.yaml") -> Config:
             post_sec=locate.get("post_sec", ldef.post_sec),
             fps=locate.get("fps", ldef.fps),
             min_prominence=locate.get("min_prominence", ldef.min_prominence),
+            scan_max_impulse_sec=locate.get("scan_max_impulse_sec", ldef.scan_max_impulse_sec),
+            scan_verify=locate.get("scan_verify", ldef.scan_verify),
+            scan_cache=locate.get("scan_cache", ldef.scan_cache),
+            scan_enabled=locate.get("scan_enabled", ldef.scan_enabled),
+            scan_min_prominence=locate.get("scan_min_prominence", ldef.scan_min_prominence),
+            scan_fps=locate.get("scan_fps", ldef.scan_fps),
+            scan_frame_px=locate.get("scan_frame_px", ldef.scan_frame_px),
             frame_px=locate.get("frame_px", ldef.frame_px),
         ),
     )

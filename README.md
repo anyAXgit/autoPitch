@@ -50,6 +50,19 @@ python3 -m venv .venv
 **자동으로 onset 폴백**(클립은 유지, Cam A 앵글).
 정지 프레임 추출: `ffmpeg -ss 60 -i data/raw/cam1/DJI_...MP4 -frames:v 1 cam1.jpg`.
 
+### ROI-only 조용한 골 스캔 (선택)
+함성이 거의 없는 골을 찾기 위해 경기 전체의 네트 ROI 모션을 스캔한다
+(`locate.scan_enabled: true`). 정크·비용을 3단계 캐스케이드로 억제한다:
+1. **키프레임 러프 패스 + 결과 캐시** — 재분석 시 0초 (`locate.scan_cache`).
+2. **임펄스 게이트(무료)** — 공-네트 히트는 짧은 임펄스(<`scan_max_impulse_sec`),
+   키퍼가 네트를 만지는 지속 모션은 자동 컷.
+3. **AI 판정(선택)** — `locate.scan_verify: vlm`이면 네트 클로즈업 3장을 VLM에
+   "공이 네트에 들어왔나?"로 물어 최종 필터 (API 키 필요, 이벤트당 센트 미만).
+   기본은 `shape`(2단계까지만) — 이때 후보는 편집기에 **ROI?** 배지로 표시되어
+   영상으로 직접 확인·제외할 수 있다.
+계획된 모든 이벤트는 `data/train_events.jsonl`에 자동 라벨(오디오 확인 여부)과
+함께 쌓인다 — 데이터가 충분해지면 로컬 tiny 분류 모델 학습용.
+
 ## Tests
 ```bash
 ./.venv/bin/python -m pytest -v

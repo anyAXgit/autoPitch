@@ -57,3 +57,36 @@ def test_confirm_goals_keeps_when_no_frames():
     peaks = [15.0]
     # no frames extracted for this peak -> kept (can't judge, don't drop)
     assert confirm_goals(peaks, {15.0: []}, cfg, _drop_all) == [15.0]
+
+
+def test_confirm_roi_clips_prunes_only_roi_only(monkeypatch, tmp_path):
+    # Audio-backed clips pass untouched; ROI-only clips are judged by the
+    # net-crop classifier and dropped when it says not-a-goal.
+    from src.config import Config, LocateConfig
+    from src import goal_confirmer as gc
+
+    monkeypatch.setattr(gc, "net_crops", lambda *a, **k: ["/x/net_1.jpg"])
+    import src.goal_locator as gl
+    monkeypatch.setattr(gl, "roi_for_cam", lambda *a, **k: [0, 0, 1, 1])
+
+    plan = {"clips": [
+        {"T": 10.0, "roi_only": False, "goal_cam": None,
+         "segments": [{"cam": "camA", "src": "/x/a.mp4"}]},
+        {"T": 50.0, "roi_only": True, "goal_cam": "camB",
+         "segments": [{"cam": "camB", "src": "/x/b.mp4"}]},
+        {"T": 90.0, "roi_only": True, "goal_cam": "camB",
+         "segments": [{"cam": "camB", "src": "/x/b.mp4"}]},
+    ]}
+    verdicts = {50.0: {"is_goal": True, "confidence": 0.9},
+                90.0: {"is_goal": False, "confidence": 0.8}}
+    state = {"i": [50.0, 90.0]}
+
+    def classifier(crops):
+        return verdicts[state["i"].pop(0)]
+
+    cfg = Config(locate=LocateConfig(enabled=True))
+    out = gc.confirm_roi_clips(plan, cfg, {"camB": [0, 0, 1, 1]}, {"camB": 0.0},
+                               classifier, str(tmp_path))
+    ts = [c["T"] for c in out["clips"]]
+    assert ts == [10.0, 50.0]                      # 90.0 pruned by the judge
+    assert out["clips"][1]["roi_verdict"]["is_goal"] is True

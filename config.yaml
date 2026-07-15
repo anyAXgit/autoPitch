@@ -12,7 +12,7 @@ reaction:
   hold_sec: 2
   post_goal_sec: 2.5    # hold Cam A this long past the goal before the angle cut
   min_reaction_sec: 2   # guarantee the reaction segment is at least this long
-  tail_sec: 0           # extra seconds appended to each clip's end (0 = off)
+  tail_sec: 2           # extra seconds appended after the celebration settles
 crossfade_sec: 0.5
 hw_encode: true            # Apple VideoToolbox H.264 (실측 ~2x 빠름; false = libx264)
 output_width: 1920
@@ -34,4 +34,10 @@ locate:                   # net-ROI goal localization (fixed cameras); off by de
   post_sec: 0.5
   fps: 10
   min_prominence: 6        # net motion spike must exceed window median by this many MADs
+  scan_enabled: false      # ROI-only quiet-goal scan is expensive; run via explicit workflow/cache
+  scan_min_prominence: 10  # stricter ROI-only threshold for quiet goals with weak/no cheer
+  scan_fps: 2              # cheaper full-game ROI-only scan rate
+  scan_frame_px: 32        # cheaper full-game ROI-only frame size
+  scan_max_impulse_sec: 1.2   # 네트 히트=짧은 임펄스; 이보다 긴 지속 모션(키퍼 등)은 컷
+  scan_verify: shape       # ROI-only 후보 검증: shape(무료) | vlm(네트 크롭 AI 판정, API 키 필요)
 # main_cam: camA   # cam id to use as Cam A / goal-detection + buildup reference (default: first cam alphabetically)

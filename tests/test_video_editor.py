@@ -8,7 +8,7 @@ from src.sync_engine import compute_offsets
 from src.peak_detector import detect_peaks, rms_db
 from src.segment_planner import build_plan
 from src import video_editor
-from src.video_editor import render_plan, probe_duration
+from src.video_editor import render_plan, probe_duration, mix_bgm
 
 
 def _cfg(tmp_path):
@@ -136,6 +136,35 @@ def test_render_hard_cut_when_crossfade_zero(tmp_path):
     assert abs(probe_duration(paths[0]) - span) < 0.5   # no crossfade overlap removed
 
 
+def test_render_clip_with_three_angle_segments(tmp_path):
+    raw = tmp_path / "raw"
+    make_dummy_set(str(raw), [
+        {"name": "cam1", "color": "red", "bursts": [(5, 6, 10)]},
+        {"name": "cam2", "color": "green", "bursts": [(5, 6, 10)]},
+        {"name": "cam3", "color": "blue", "bursts": [(5, 6, 10)]},
+    ], duration=12.0)
+    plan = {
+        "fps": 30,
+        "crossfade_sec": 0.25,
+        "output_width": 320,
+        "output_height": 180,
+        "hw_encode": False,
+        "clips": [{
+            "T": 5.0,
+            "segments": [
+                {"cam": "cam1", "src": str(raw / "cam1.mp4"), "src_in": 1.0, "src_out": 3.0},
+                {"cam": "cam2", "src": str(raw / "cam2.mp4"), "src_in": 3.0, "src_out": 5.0},
+                {"cam": "cam3", "src": str(raw / "cam3.mp4"), "src_in": 5.0, "src_out": 7.0},
+            ],
+        }],
+    }
+    paths = render_plan(plan, str(tmp_path / "out"))
+    assert len(paths) == 1
+    assert os.path.exists(paths[0])
+    assert _dims(paths[0]) == (320, 180)
+    assert 5.0 <= probe_duration(paths[0]) <= 6.1
+
+
 def test_render_plan_mixes_bgm(tmp_path):
     # Rendering with a bgm file mixes music UNDER the highlight (video + audio
     # preserved, duration unchanged -- bgm is looped/ducked, not appended).
@@ -168,6 +197,37 @@ def test_render_plan_mixes_bgm(tmp_path):
     # duration preserved (music mixed under, clip length unchanged)
     dur = probe_duration(all_path)
     assert 7.0 <= dur <= 19
+
+
+def test_mix_bgm_loops_short_track_to_video_end(tmp_path):
+    import soundfile as sf
+
+    video = str(tmp_path / "silent.mp4")
+    bgm = str(tmp_path / "short_bgm.m4a")
+    out = str(tmp_path / "mixed.mp4")
+    tail = str(tmp_path / "tail.wav")
+    subprocess.run([
+        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+        "-f", "lavfi", "-i", "color=c=black:s=160x90:d=5:r=30",
+        "-f", "lavfi", "-i", "anullsrc=channel_layout=mono:sample_rate=48000:d=5",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac",
+        "-shortest", video,
+    ], check=True)
+    subprocess.run([
+        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+        "-f", "lavfi", "-i", "sine=frequency=880:duration=1:sample_rate=48000",
+        "-c:a", "aac", bgm,
+    ], check=True)
+
+    mix_bgm(video, bgm, 0.5, out)
+
+    subprocess.run([
+        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+        "-ss", "4", "-t", "0.75", "-i", out,
+        "-vn", "-ac", "1", "-ar", "16000", tail,
+    ], check=True)
+    y, _sr = sf.read(tail, dtype="float32")
+    assert float((y ** 2).mean()) > 1e-5
 
 
 def test_render_multicam_mixed_resolution(tmp_path):

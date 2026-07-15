@@ -32,12 +32,27 @@ _HW_H264 = None
 
 
 def _hw_available():
-    """True when ffmpeg has the Apple VideoToolbox H.264 encoder (cached probe)."""
+    """True when Apple VideoToolbox H.264 is listed and can actually encode.
+
+    Some headless/test contexts expose `h264_videotoolbox` in `ffmpeg -encoders`
+    but fail to create a compression session. Probe a tiny in-memory encode so
+    render jobs can fall back to libx264 before doing real work.
+    """
     global _HW_H264
     if _HW_H264 is None:
         out = subprocess.run(["ffmpeg", "-hide_banner", "-encoders"],
                              capture_output=True, text=True, check=True)
-        _HW_H264 = "h264_videotoolbox" in out.stdout
+        if "h264_videotoolbox" not in out.stdout:
+            _HW_H264 = False
+        else:
+            probe = subprocess.run([
+                "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+                "-f", "lavfi", "-i", "color=c=black:s=320x180:d=0.1:r=30",
+                "-frames:v", "1",
+                "-c:v", "h264_videotoolbox", "-b:v", "1M", "-allow_sw", "1",
+                "-f", "null", "-",
+            ], capture_output=True, text=True)
+            _HW_H264 = probe.returncode == 0
     return _HW_H264
 
 
@@ -102,18 +117,21 @@ def render_clip(clip, fps, crossfade_sec, work_dir, out_path, width, height, var
                  *vargs, "-c:a", "aac", out_path])
         return out_path
 
-    first, second = seg_paths[0], seg_paths[1]
-    d1 = probe_duration(first)
-    off = max(0.0, d1 - crossfade_sec)
-    _ffmpeg([
-        "-i", first, "-i", second,
-        "-filter_complex",
-        f"[0:v][1:v]xfade=transition=fade:duration={crossfade_sec}:offset={off}[v];"
-        f"[0:a][1:a]acrossfade=d={crossfade_sec}[a]",
-        "-map", "[v]", "-map", "[a]",
-        *vargs, "-c:a", "aac",
-        out_path,
-    ])
+    current = seg_paths[0]
+    for i, next_path in enumerate(seg_paths[1:], 1):
+        merged = out_path if i == len(seg_paths) - 1 else os.path.join(work_dir, f"xfade_{i}.mp4")
+        d1 = probe_duration(current)
+        off = max(0.0, d1 - crossfade_sec)
+        _ffmpeg([
+            "-i", current, "-i", next_path,
+            "-filter_complex",
+            f"[0:v][1:v]xfade=transition=fade:duration={crossfade_sec}:offset={off}[v];"
+            f"[0:a][1:a]acrossfade=d={crossfade_sec}[a]",
+            "-map", "[v]", "-map", "[a]",
+            *vargs, "-c:a", "aac",
+            merged,
+        ])
+        current = merged
     return out_path
 
 

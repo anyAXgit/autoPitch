@@ -68,12 +68,14 @@ def _subsample(frames, n):
 
 
 _NET_PROMPT = (
-    "These are 3 consecutive close-up crops of a futsal GOAL NET from a fixed "
-    "camera, ~0.5s apart, around a motion spike inside the net area. Decide if a "
-    "GOAL was scored here: the ball entering/inside the net, the mesh bulging or "
-    "rippling from a ball impact, or the ball lying in the goal. It is NOT a goal "
-    "if the motion is a goalkeeper's body/hands on the net, a player brushing "
-    "past, someone retrieving a ball from beside the goal, or nothing notable.\n"
+    "These are close-up crops of a futsal GOAL NET from a fixed camera, sampled "
+    "from just before a motion spike in the net area to a few seconds after it. "
+    "Decide if a GOAL was scored here. Strongest cue: a ball LYING/RESTING inside "
+    "the goal or net in the later frames (after a goal the ball settles there for "
+    "a moment). Also goal: the ball entering the net, or the mesh bulging/rippling "
+    "from a ball impact. It is NOT a goal if the motion is only a goalkeeper's "
+    "body/hands on the net, a player brushing past, someone retrieving a ball "
+    "from beside the goal, or nothing notable.\n"
     'Reply with ONLY a JSON object: {"is_goal": true|false, "confidence": 0.0-1.0}.'
 )
 
@@ -92,7 +94,9 @@ def net_crops(source, t, roi, out_dir, margin=0.6):
           f"scale=-2:360")
     os.makedirs(out_dir, exist_ok=True)
     paths = []
-    for i, dt in enumerate((-0.5, 0.1, 0.7)):
+    # from just before impact to a few seconds after: the ball settles INSIDE the
+    # net after a goal (no blur, no occlusion) -- the later frames catch it at rest.
+    for i, dt in enumerate((-0.5, 0.3, 1.0, 1.8, 2.8)):
         p = os.path.join(out_dir, f"net_{t:.1f}_{i}.jpg")
         subprocess.run(["ffmpeg", "-y", "-v", "error", "-ss", str(max(0.0, t + dt)),
                         "-i", source, "-frames:v", "1", "-vf", vf, p], check=True)

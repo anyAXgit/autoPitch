@@ -364,16 +364,19 @@ def compute_plan(game, on_step=None):
     try:
         import time
         with open(os.path.join(root, "data", "train_events.jsonl"), "a") as f:
-            for c in plan["clips"]:
+            # kept clips AND judge-rejected ROI events (negatives matter most)
+            for c in plan["clips"] + plan.get("roi_rejected", []):
                 f.write(json.dumps({
                     "ts": int(time.time()), "game": game,
                     "cam": c.get("goal_cam") or c["segments"][0]["cam"],
                     "src": c["segments"][0].get("src_rel"),
                     "T": c["T"], "audio_confirmed": not c.get("roi_only"),
+                    "scan_conf": c.get("scan_conf"),
                     "roi_verdict": c.get("roi_verdict"),
                 }) + "\n")
     except OSError:
         pass
+    plan.pop("roi_rejected", None)   # logged; keep the cached plan lean
 
     step(7, 7, "분석 결과 저장 중")
     with open(_plan_cache_path(game), "w") as f:

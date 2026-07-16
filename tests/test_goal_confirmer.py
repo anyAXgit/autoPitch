@@ -90,3 +90,5 @@ def test_confirm_roi_clips_prunes_only_roi_only(monkeypatch, tmp_path):
     ts = [c["T"] for c in out["clips"]]
     assert ts == [10.0, 50.0]                      # 90.0 pruned by the judge
     assert out["clips"][1]["roi_verdict"]["is_goal"] is True
+    assert [c["T"] for c in out["roi_rejected"]] == [90.0]   # negative label surfaced
+    assert out["roi_rejected"][0]["roi_verdict"]["is_goal"] is False

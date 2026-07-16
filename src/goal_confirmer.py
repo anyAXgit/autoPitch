@@ -160,6 +160,10 @@ def confirm_roi_clips(plan, cfg, rois, offsets, classifier, workdir):
         clip["roi_verdict"] = verdict
         if verdict.get("is_goal"):
             kept.append(clip)
+        else:
+            # judged-not-a-goal events are the most valuable NEGATIVE labels for
+            # the future local model -- surface them so the caller can log them.
+            plan.setdefault("roi_rejected", []).append(clip)
     plan["clips"] = kept
     return plan
 

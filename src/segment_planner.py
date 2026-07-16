@@ -86,6 +86,15 @@ def _refine_anchor(pre, offsets, onset, cfg, rois):
     candidates = [c for c in candidates if c[0] >= onset - max_lead and c[0] <= onset + cfg.locate.post_sec]
     if not candidates:
         return None
+    # If the earliest hit is far ahead of the cheer but another camera has a
+    # strong hit right around the onset, the early one is often stale net/keeper
+    # motion from the previous phase. Keep the "earliest" rule for normal delayed
+    # cheers, but do not let a very early candidate steal a near-onset goal hit.
+    near = [c for c in candidates if onset - 0.75 <= c[0] <= onset + cfg.locate.post_sec]
+    earliest = min(candidates, key=lambda x: x[0])
+    if near and earliest[0] < onset - 6.0:
+        best = max(near, key=lambda x: x[2])
+        return (best[0], best[1])
     # The ball hitting the net normally precedes the crowd peak/onset, and the
     # closer camera can have lower ROI prominence than a wider camera with larger
     # net/player motion. Prefer the earliest valid net hit over raw confidence so
@@ -123,12 +132,24 @@ def _roi_only_anchors(pre, offsets, cfg, rois, existing):
                 kept[-1] = cand
         else:
             kept.append(cand)
-    return [(T, peak, cam, True) for T, peak, cam, _conf in kept]
+    return [(T, peak, cam, True, conf) for T, peak, cam, conf in kept]
 
 
 def _mean_db(times, db, a, b):
     mask = (times >= a) & (times < b)
     return float(np.mean(db[mask])) if mask.any() else -np.inf
+
+
+def _max_db_on_ref_times(ref_times, rms_cache, offsets):
+    """Return a crowd-loudness envelope on the reference timeline using the
+    loudest available camera at each timestamp. This keeps celebrations from
+    ending early just because the main/goal camera got quiet first."""
+    stacked = []
+    for cam, (times, db) in rms_cache.items():
+        shifted = ref_times + offsets.get(cam, 0.0)
+        vals = np.interp(shifted, times, db, left=-np.inf, right=-np.inf)
+        stacked.append(vals)
+    return np.max(np.vstack(stacked), axis=0) if stacked else np.array([])
 
 
 def _loudest_other(pre, offsets, exclude, T, end, cfg, rms_cache):
@@ -184,7 +205,7 @@ def build_plan(pre, offsets, peaks, camA, cfg):
             refined = _refine_anchor(pre, offsets, T, cfg, rois)
             if refined is not None:
                 T, goal_cam = refined
-        anchors.append((T, peak, goal_cam, False))
+        anchors.append((T, peak, goal_cam, False, None))
     if rois and cfg.locate.scan_enabled:
         anchors.extend(_roi_only_anchors(pre, offsets, cfg, rois, anchors))
     anchors.sort(key=lambda a: a[0])   # refinement can nudge order
@@ -197,7 +218,7 @@ def build_plan(pre, offsets, peaks, camA, cfg):
         deduped.append(a)
     anchors = deduped
 
-    for idx, (T, peak, goal_cam, roi_only) in enumerate(anchors):
+    for idx, (T, peak, goal_cam, roi_only, scan_conf) in enumerate(anchors):
         start = max(0.0, T - cfg.build_up_sec)
         hi = start + cfg.max_len_sec
         if idx + 1 < len(anchors):
@@ -205,7 +226,14 @@ def build_plan(pre, offsets, peaks, camA, cfg):
             # never end past the next clip's start (keep a sane floor so the
             # reaction doesn't collapse when goals are absurdly close)
             hi = min(hi, max(next_start, T + cfg.post_goal_sec + cfg.min_reaction_sec))
-        end = min(reaction_end(times, db, T, cfg) + cfg.tail_sec, hi)
+        end_db = _max_db_on_ref_times(times, rms_cache, offsets) if pre["is_multicam"] else db
+        base_end = reaction_end(times, end_db, T, cfg)
+        min_end = start + cfg.min_len_sec
+        # Tail is useful after a real, sustained celebration, but adding it to
+        # every minimum-length clip makes dead time drag. Only append it when
+        # audio actually kept the clip past the minimum.
+        tail = cfg.tail_sec if base_end > min_end + cfg.rms_window_sec else 0.0
+        end = min(base_end + tail, hi)
         if pre["is_multicam"]:
             # PRIMARY angle (buildup + the goal itself) = the goal-side cam when the
             # net-ROI identified it, else Cam A. This shows the goal from the camera
@@ -219,7 +247,10 @@ def build_plan(pre, offsets, peaks, camA, cfg):
                 # so the reaction segment keeps at least min_reaction_sec.
                 end = min(max(end, T + cfg.post_goal_sec + cfg.min_reaction_sec), hi)
                 cut = max(T, min(T + cfg.post_goal_sec, end - cfg.min_reaction_sec))
-                segments = [seg(primary, start, cut), seg(react, cut, end)]
+                if end - cut < cfg.min_angle_switch_sec:
+                    segments = [seg(primary, start, end)]
+                else:
+                    segments = [seg(primary, start, cut), seg(react, cut, end)]
             else:
                 segments = [seg(primary, start, end)]
         else:
@@ -227,6 +258,7 @@ def build_plan(pre, offsets, peaks, camA, cfg):
         # T = goal-onset anchor (clip start / label); peak = loudness peak; goal_cam = net-ROI goal side
         clips.append({"T": float(T), "peak": float(peak),
                       "goal_cam": goal_cam, "roi_only": bool(roi_only),
+                      "scan_conf": (float(scan_conf) if scan_conf is not None else None),
                       "segments": segments})
     return {"fps": cfg.fps, "crossfade_sec": cfg.crossfade_sec,
             "output_width": pre["width"], "output_height": pre["height"],

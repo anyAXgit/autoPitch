@@ -36,6 +36,32 @@ def test_single_cam_plan_one_segment(tmp_path):
     assert 8 <= length <= 20                               # clamped dynamic length
 
 
+def test_tail_not_added_to_minimum_length_clip(tmp_path):
+    raw = tmp_path / "raw"
+    make_dummy_set(str(raw), [
+        {"name": "camA", "color": "red", "offset": 0.0, "bursts": [(30, 31, 12)]},
+    ], duration=50.0)
+    res = preprocess_all(str(raw), str(tmp_path / "tv"), str(tmp_path / "ta"), fps=30)
+    cfg = _cfg_yaml(tmp_path, reaction={"tail_sec": 4})
+    peaks = detect_peaks(res["audio"]["camA"], cfg)
+    clip = build_plan(res, {"camA": 0.0}, peaks, "camA", cfg)["clips"][0]
+    length = clip["segments"][0]["src_out"] - clip["segments"][0]["src_in"]
+    assert length <= cfg.min_len_sec + 0.6
+
+
+def test_tail_added_after_sustained_celebration(tmp_path):
+    raw = tmp_path / "raw"
+    make_dummy_set(str(raw), [
+        {"name": "camA", "color": "red", "offset": 0.0, "bursts": [(30, 44, 12)]},
+    ], duration=60.0)
+    res = preprocess_all(str(raw), str(tmp_path / "tv"), str(tmp_path / "ta"), fps=30)
+    cfg = _cfg_yaml(tmp_path, reaction={"tail_sec": 4})
+    peaks = detect_peaks(res["audio"]["camA"], cfg)
+    clip = build_plan(res, {"camA": 0.0}, peaks, "camA", cfg)["clips"][0]
+    length = clip["segments"][0]["src_out"] - clip["segments"][0]["src_in"]
+    assert length > cfg.min_len_sec + 2
+
+
 def test_multicam_reaction_uses_louder_subcam(tmp_path):
     raw = tmp_path / "raw"
     # camB reaction burst (gain 18) is louder than camC (gain 8) at T~30
@@ -53,6 +79,20 @@ def test_multicam_reaction_uses_louder_subcam(tmp_path):
     assert len(clip["segments"]) == 2
     assert clip["segments"][0]["cam"] == "camA"            # build-up
     assert clip["segments"][1]["cam"] == "camB"            # louder reaction
+
+
+def test_multicam_end_uses_loudest_camera_not_only_main_cam(tmp_path):
+    raw = tmp_path / "raw"
+    make_dummy_set(str(raw), [
+        {"name": "camA", "color": "red", "offset": 0.0, "bursts": [(30, 32, 12)]},
+        {"name": "camB", "color": "green", "offset": 0.0, "bursts": [(30, 48, 18)]},
+    ], duration=60.0)
+    res = preprocess_all(str(raw), str(tmp_path / "tv"), str(tmp_path / "ta"), fps=30)
+    cfg = _cfg(tmp_path)
+    offsets = compute_offsets(res["audio"], "camA")
+    peaks = detect_peaks(res["audio"]["camA"], cfg)
+    clip = build_plan(res, offsets, peaks, "camA", cfg)["clips"][0]
+    assert sum(seg["src_out"] - seg["src_in"] for seg in clip["segments"]) > 15
 
 
 def test_mean_db_cache_preserves_angle_pick(tmp_path):
@@ -135,6 +175,15 @@ def test_post_goal_clamped_to_end(tmp_path):
     end = b["src_out"]                                        # offset ~0
     assert abs(a["src_out"] - (end - cfg.min_reaction_sec)) < 0.1   # cut clamped to end-min_reaction
     assert abs((b["src_out"] - b["src_in"]) - cfg.min_reaction_sec) < 0.1
+
+
+def test_short_reaction_cut_is_suppressed(tmp_path):
+    res, offsets = _multicam_res(tmp_path)
+    cfg = _cfg_yaml(tmp_path, reaction={"post_goal_sec": 7.0, "min_reaction_sec": 2.0,
+                                        "min_angle_switch_sec": 3.0})
+    peaks = detect_peaks(res["audio"]["camA"], cfg)
+    clip = build_plan(res, offsets, peaks, "camA", cfg)["clips"][0]
+    assert len(clip["segments"]) == 1
 
 
 def _reaction_cfg():
@@ -231,6 +280,46 @@ def test_build_plan_ignores_roi_hit_that_is_too_far_before_onset(tmp_path, monke
     assert clip["segments"][0]["cam"] == "camB"
 
 
+def test_build_plan_prefers_near_onset_roi_over_stale_early_hit(tmp_path, monkeypatch):
+    import src.segment_planner as sp
+    res, offsets = _multicam_res(tmp_path)
+    (tmp_path / "net_rois.json").write_text('{"any":[0,0,1,1]}')
+    cfg = _cfg_yaml(tmp_path, locate={"enabled": True,
+                                      "rois_path": str(tmp_path / "net_rois.json")})
+
+    def fake_locate(source, center_time, cfg, roi):
+        if source.endswith("camA.mp4"):
+            return {"goal_time": center_time + 0.5, "confidence": 9.0}
+        return {"goal_time": center_time - 9.0, "confidence": 16.0}
+
+    monkeypatch.setattr(sp.goal_locator, "roi_for_cam", lambda *a, **k: [0, 0, 1, 1])
+    monkeypatch.setattr(sp.goal_locator, "locate_goal", fake_locate)
+    peaks = detect_peaks(res["audio"]["camA"], cfg)
+    clip = sp.build_plan(res, offsets, peaks, "camA", cfg)["clips"][0]
+    assert clip["goal_cam"] == "camA"
+    assert clip["segments"][0]["cam"] == "camA"
+
+
+def test_build_plan_prefers_near_pre_onset_roi_over_stale_early_hit(tmp_path, monkeypatch):
+    import src.segment_planner as sp
+    res, offsets = _multicam_res(tmp_path)
+    (tmp_path / "net_rois.json").write_text('{"any":[0,0,1,1]}')
+    cfg = _cfg_yaml(tmp_path, locate={"enabled": True,
+                                      "rois_path": str(tmp_path / "net_rois.json")})
+
+    def fake_locate(source, center_time, cfg, roi):
+        if source.endswith("camA.mp4"):
+            return {"goal_time": center_time - 0.35, "confidence": 8.0}
+        return {"goal_time": center_time - 8.75, "confidence": 11.0}
+
+    monkeypatch.setattr(sp.goal_locator, "roi_for_cam", lambda *a, **k: [0, 0, 1, 1])
+    monkeypatch.setattr(sp.goal_locator, "locate_goal", fake_locate)
+    peaks = detect_peaks(res["audio"]["camA"], cfg)
+    clip = sp.build_plan(res, offsets, peaks, "camA", cfg)["clips"][0]
+    assert clip["goal_cam"] == "camA"
+    assert clip["segments"][0]["cam"] == "camA"
+
+
 def test_build_plan_keeps_audio_onset_when_only_roi_hit_is_too_early(tmp_path, monkeypatch):
     import src.segment_planner as sp
     res, offsets = _multicam_res(tmp_path)
@@ -268,6 +357,7 @@ def test_build_plan_adds_roi_only_clip_when_audio_has_no_peak(tmp_path, monkeypa
     assert clip["goal_cam"] == "camB"
     assert clip["segments"][0]["cam"] == "camB"
     assert clip["roi_only"] is True          # flagged for review/verification
+    assert clip["scan_conf"] == 20.0         # net-motion prominence carried for review sorting
 
 
 def test_audio_backed_clips_not_flagged_roi_only(tmp_path):
@@ -276,6 +366,7 @@ def test_audio_backed_clips_not_flagged_roi_only(tmp_path):
     peaks = detect_peaks(res["audio"]["camA"], cfg)
     plan = build_plan(res, offsets, peaks, "camA", cfg)
     assert all(c["roi_only"] is False for c in plan["clips"])
+    assert all(c["scan_conf"] is None for c in plan["clips"])   # audio clips have no scan prominence
 
 
 def test_build_plan_does_not_duplicate_roi_only_near_audio_peak(tmp_path, monkeypatch):

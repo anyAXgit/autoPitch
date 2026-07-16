@@ -402,7 +402,11 @@ async function renderEdit(){
       </div>
     </div>
     <div class="nle-top">
-      <div class="npane"><div class="hd">라이브러리 — 하이라이트 <span id="libN"></span></div><div class="bd" id="nLib"></div></div>
+      <div class="npane"><div class="hd" style="display:flex;align-items:center;gap:6px">라이브러리 <span id="libN"></span>
+        <select id="libSort" style="margin-left:auto;font-size:11px;padding:2px 4px" title="검수 정렬">
+          <option value="time">시간순</option>
+          <option value="conf">ROI 강도순</option>
+        </select></div><div class="bd" id="nLib"></div></div>
       <div class="npane viewer">
         <video id="nVid" preload="metadata" playsinline></video>
         <div class="transport">
@@ -483,6 +487,13 @@ async function renderEdit(){
   };
   const hideJob=()=>{$('#jobPanel').hidden=true;};
   window.setJobPanel=setJob;window.hideJobPanel=hideJob;
+  let loadReq=0, loadingPlan=false;
+  const setLoadBusy=busy=>{
+    loadingPlan=busy;
+    $('#edLoad').disabled=busy;
+    $('#edFresh').disabled=busy;
+    $('#edGame').disabled=busy;
+  };
   const applyLoadedPlan=loaded=>{
     plan=loaded;
     clips=plan.clips.map(d=>({id:nextId++,data:d,include:true}));
@@ -493,29 +504,47 @@ async function renderEdit(){
     renderAll();seekSeq(0);
   };
   const load=async fresh=>{
+    if(loadingPlan)return;
+    const req=++loadReq;
+    setLoadBusy(true);
     $('#edStat').textContent=fresh?'다시 분석 중':'불러오는 중';
     setJob('분석', fresh?'새 분석 시작':'캐시 확인 중', 0);
     try{
       const r=await api('/api/plan_start',{method:'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({game:parseInt($('#edGame').value,10),fresh})});
       const poll=async()=>{
-        const s=await api('/api/plan_status?job='+r.job);
-        if(s.status==='running'){
-          setJob('분석',s.stage,s.percent);
-          $('#edStat').textContent=s.stage||'분석 중';
-          setTimeout(poll,600);
-        }else if(s.status==='done'){
-          setJob('분석','완료',100);
-          applyLoadedPlan(s.plan);
-          setTimeout(hideJob,900);
-        }else{
-          $('#edStat').textContent='오류: '+(s.error||'unknown');
-          setJob('분석 실패',s.error||'unknown',100);
+        try{
+          const s=await api('/api/plan_status?job='+r.job);
+          if(req!==loadReq)return;
+          if(s.status==='running'){
+            setJob('분석',s.stage,s.percent);
+            $('#edStat').textContent=s.stage||'분석 중';
+            setTimeout(poll,600);
+          }else if(s.status==='done'){
+            setJob('분석','완료',100);
+            applyLoadedPlan(s.plan);
+            setLoadBusy(false);
+            setTimeout(hideJob,900);
+          }else{
+            $('#edStat').textContent='오류: '+(s.error||'unknown');
+            setJob('분석 실패',s.error||'unknown',100);
+            setLoadBusy(false);
+          }
+        }catch(e){
+          if(req!==loadReq)return;
+          $('#edStat').textContent='오류: '+e.message;
+          setJob('분석 실패',e.message,100);
+          setLoadBusy(false);
         }
       };
       poll();
     }
-    catch(e){$('#edStat').textContent='오류: '+e.message;}
+    catch(e){
+      if(req===loadReq){
+        $('#edStat').textContent='오류: '+e.message;
+        setLoadBusy(false);
+      }
+    }
   };
   $('#edLoad').onclick=()=>load(false);
   $('#edFresh').onclick=()=>load(true);
@@ -688,7 +717,7 @@ function renderTimeline(){
     el.style.left=x+'px';el.style.width=w+'px';el.dataset.id=c.id;el.draggable=true;
     el.innerHTML=`<canvas class="nwave"></canvas>
       ${segHtml}
-      <div class="nlabel">${mmss(c.data.T)} · ${round(d,1)}s${c.data.goal_cam?' · 🥅'+camName(c.data.goal_cam):''}${c.data.roi_only?' · <span style=\"color:#f0b429\">ROI?</span>':''}</div>
+      <div class="nlabel">${mmss(c.data.T)} · ${round(d,1)}s${c.data.goal_cam?' · 🥅'+camName(c.data.goal_cam):''}${c.data.roi_only?` · <span style="color:#f0b429">ROI?${c.data.scan_conf!=null?' '+Math.round(c.data.scan_conf):''}</span>`:''}</div>
       <div class="ncams">${segs.map(s=>camName(s.cam)).join(' → ')}</div>
       <div class="trim l"></div><div class="trim r"></div>
       <button class="ndel" title="제외 (⌫)">✕</button>`;
@@ -776,11 +805,21 @@ async function ensureWave(c,el){
 /* ---- library / inspector ---- */
 function renderLib(){
   const lib=$('#nLib');lib.innerHTML='';
-  $('#libN').textContent=`${clips.filter(c=>c.include).length}/${clips.length}`;
-  clips.forEach(c=>{
+  const roiN=clips.filter(c=>c.data.roi_only).length;
+  $('#libN').textContent=`— ${clips.filter(c=>c.include).length}/${clips.length}${roiN?` · ROI? ${clips.filter(c=>c.data.roi_only&&c.include).length}/${roiN}`:''}`;
+  // Library-only reordering for review (the timeline sequence stays time-ordered).
+  // 'conf' sorts strongest ROI net-hit first so you can review top-down and stop
+  // when prominence drops into noise; audio-confirmed clips sink to the bottom.
+  const order=($('#libSort')||{}).value||'time';
+  let view=clips.slice();
+  if(order==='conf')view.sort((a,b)=>(b.data.scan_conf??-1)-(a.data.scan_conf??-1));
+  view.forEach(c=>{
     const d=c.data,el=document.createElement('div');
     el.className='lib-item'+(c.id===selId?' sel':'')+(c.include?'':' off');
-    el.innerHTML=`<span class="t">${mmss(d.T)}</span>
+    const badge=d.roi_only
+      ? `<span style="color:#f0b429" title="ROI 스캔 · 함성 없음 · 미검증">ROI?${d.scan_conf!=null?' '+Math.round(d.scan_conf):''}</span>`
+      : `<span style="color:var(--ok)" title="함성으로 확인된 골">♪</span>`;
+    el.innerHTML=`<span class="t">${mmss(d.T)}</span> ${badge}
       <span class="mut">${d.segments.map(s=>camName(s.cam)).join('→')} · ${round(clipDur(c),1)}s</span>
       <button class="tbtn" data-tog>${c.include?'제외':'포함'}</button>`;
     el.onclick=e=>{
@@ -821,7 +860,7 @@ function renderInsp(){
   box.innerHTML=`
     <div class="sec"><div class="lbl">선택한 하이라이트</div>
       <div class="kv"><b>${mmss(c.data.T)}</b><span class="mut">peak ${round(c.data.peak,1)}${c.data.goal_cam?' · 골쪽 '+camName(c.data.goal_cam):''}</span></div>
-      ${c.data.roi_only?`<div class="kv" style="color:#f0b429;font-size:11px">⚠ ROI 스캔 감지 — 함성 없음${c.data.roi_verdict?` · AI 판정 ${c.data.roi_verdict.is_goal?'골':'골 아님'} (${Math.round((c.data.roi_verdict.confidence||0)*100)}%)`:' · 미검증, 영상으로 확인하세요'}</div>`:''}
+      ${c.data.roi_only?`<div class="kv" style="color:#f0b429;font-size:11px">⚠ ROI 스캔 — 함성 없음${c.data.scan_conf!=null?` · 네트모션 강도 ${Math.round(c.data.scan_conf)}`:''}${c.data.roi_verdict?` · AI 판정 ${c.data.roi_verdict.is_goal?'골':'골 아님'} (${Math.round((c.data.roi_verdict.confidence||0)*100)}%)`:' · 미검증, 영상으로 확인'}</div>`:''}
       <div class="kv mut">${segs.map(s=>camName(s.cam)).join(' → ')} · ${round(clipDur(c),1)}s</div>
     </div>
     <div class="sec"><div class="lbl">앵글 구성</div><div class="kv" id="angRow"></div>
@@ -900,6 +939,7 @@ function bindShell(){
   });
   $('#ntlScroll').addEventListener('mouseleave',()=>$('#nSkim').style.display='none');
   $('#nSnap').onclick=()=>{snapOn=!snapOn;$('#nSnap').classList.toggle('on',snapOn);};
+  const ls=$('#libSort');if(ls)ls.onchange=renderLib;
   const applyZoom=v=>{PXPS=clamp(v,3,120);$('#zoom').value=Math.round(PXPS);renderTimeline();};
   $('#zoom').oninput=e=>{autoFit=false;applyZoom(+e.target.value);};
   $('#zIn').onclick=()=>{autoFit=false;applyZoom(PXPS*1.3);};

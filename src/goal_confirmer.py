@@ -117,7 +117,7 @@ def make_net_classifier(cfg, client=None):
                    for p in crop_paths]
         content.append({"type": "text", "text": _NET_PROMPT})
         resp = client.messages.create(
-            model=cfg.vision.model, max_tokens=1024,
+            model=cfg.locate.scan_verify_model or cfg.vision.model, max_tokens=1024,
             messages=[{"role": "user", "content": content}],
         )
         text = next((b.text for b in resp.content if b.type == "text"), "").strip()

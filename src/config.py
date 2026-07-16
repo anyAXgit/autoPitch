@@ -35,6 +35,7 @@ class LocateConfig:
     scan_max_impulse_sec: float = 1.2   # Tier-0 gate: net-hit motion must be a brief impulse
     scan_max_candidates: int = 40   # refine/gate only the strongest rough hits (cost bound)
     scan_verify: str = "shape"      # ROI-only verification: shape (free) | vlm (net-crop judge)
+    scan_verify_model: str = "claude-haiku-4-5-20251001"  # cheap judge; ~3 crops/event
     scan_cache: str = "data/_gui/roi_scan_cache.json"   # whole-match scan results cache
     frame_px: int = 64              # ROI downscaled to frame_px^2 for the diff
 
@@ -53,6 +54,7 @@ class Config:
     hold_sec: float = 2.0
     post_goal_sec: float = 2.5
     min_reaction_sec: float = 2.0
+    min_angle_switch_sec: float = 0.0
     tail_sec: float = 0.0
     crossfade_sec: float = 0.5
     output_width: int = 1920
@@ -88,6 +90,7 @@ def load_config(path: str = "config.yaml") -> Config:
         hold_sec=reaction.get("hold_sec", defaults.hold_sec),
         post_goal_sec=reaction.get("post_goal_sec", defaults.post_goal_sec),
         min_reaction_sec=reaction.get("min_reaction_sec", defaults.min_reaction_sec),
+        min_angle_switch_sec=reaction.get("min_angle_switch_sec", defaults.min_angle_switch_sec),
         tail_sec=reaction.get("tail_sec", defaults.tail_sec),
         crossfade_sec=raw.get("crossfade_sec", defaults.crossfade_sec),
         output_width=raw.get("output_width", defaults.output_width),
@@ -115,6 +118,7 @@ def load_config(path: str = "config.yaml") -> Config:
             scan_max_impulse_sec=locate.get("scan_max_impulse_sec", ldef.scan_max_impulse_sec),
             scan_max_candidates=locate.get("scan_max_candidates", ldef.scan_max_candidates),
             scan_verify=locate.get("scan_verify", ldef.scan_verify),
+            scan_verify_model=locate.get("scan_verify_model", ldef.scan_verify_model),
             scan_cache=locate.get("scan_cache", ldef.scan_cache),
             scan_enabled=locate.get("scan_enabled", ldef.scan_enabled),
             scan_min_prominence=locate.get("scan_min_prominence", ldef.scan_min_prominence),

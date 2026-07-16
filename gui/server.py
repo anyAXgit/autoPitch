@@ -264,6 +264,22 @@ def cached_plan(game):
     return plan
 
 
+def _api_key(root):
+    """API key for the ROI VLM judge: env first, else a local key file at
+    data/_gui/anthropic_key.txt (gitignored). The key is loaded into the env for
+    the anthropic client and NEVER logged or echoed anywhere."""
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        return True
+    p = os.path.join(root, "data", "_gui", "anthropic_key.txt")
+    if os.path.exists(p):
+        with open(p) as f:
+            key = f.read().strip()
+        if key:
+            os.environ["ANTHROPIC_API_KEY"] = key
+            return True
+    return False
+
+
 def compute_plan(game, on_step=None):
     """Audio-only detection + planning for one game (no render). Returns plan dict."""
     from src.config import load_config
@@ -334,7 +350,7 @@ def compute_plan(game, on_step=None):
     # VLM judge -- only when configured and an API key is available; otherwise
     # they stay flagged (roi_only) for manual review in the editor.
     if (cfg.locate.enabled and cfg.locate.scan_enabled
-            and cfg.locate.scan_verify == "vlm" and os.environ.get("ANTHROPIC_API_KEY")
+            and cfg.locate.scan_verify == "vlm" and _api_key(root)
             and any(c.get("roi_only") for c in plan["clips"])):
         step(7, 7, "ROI 후보 AI 판정 중")
         from src import goal_locator
@@ -387,6 +403,8 @@ def wave_env(rel, t0, t1, n):
 
 JOBS = {}       # render job_id -> {"status": running|done|error, "progress": [i, n], ...}
 PLAN_JOBS = {}  # plan job_id -> {"status": running|done|error, "progress": [i, n], ...}
+PLAN_INFLIGHT = {}  # (root, game, fresh) -> running plan job_id
+PLAN_LOCK = threading.Lock()
 
 
 def _percent(i, n):
@@ -414,12 +432,24 @@ def _plan_job(job_id, game, fresh):
     except Exception as e:  # noqa
         job.update(status="error", error=f"{type(e).__name__}: {e}",
                    stage="분석 실패")
+    finally:
+        key = job.get("key")
+        if key is not None:
+            with PLAN_LOCK:
+                if PLAN_INFLIGHT.get(key) == job_id:
+                    PLAN_INFLIGHT.pop(key, None)
 
 
 def start_plan_job(game, fresh=False):
-    job_id = uuid.uuid4().hex[:12]
-    PLAN_JOBS[job_id] = {"status": "running", "progress": [0, 1],
-                         "percent": 0, "stage": "대기 중"}
+    key = (STATE["root"], int(game), bool(fresh))
+    with PLAN_LOCK:
+        existing = PLAN_INFLIGHT.get(key)
+        if existing and PLAN_JOBS.get(existing, {}).get("status") == "running":
+            return existing
+        job_id = uuid.uuid4().hex[:12]
+        PLAN_INFLIGHT[key] = job_id
+        PLAN_JOBS[job_id] = {"status": "running", "progress": [0, 1],
+                             "percent": 0, "stage": "대기 중", "key": key}
     t = threading.Thread(target=_plan_job, args=(job_id, game, fresh), daemon=True)
     t.start()
     return job_id

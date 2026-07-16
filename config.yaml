@@ -35,7 +35,11 @@ locate:                   # net-ROI goal localization (fixed cameras); off by de
   post_sec: 0.5
   fps: 10
   min_prominence: 6        # net motion spike must exceed window median by this many MADs
-  scan_enabled: true       # ROI-only quiet-goal scan (결과는 캐시됨; 첫 분석만 느림)
+  scan_enabled: false      # ROI-only 조용한-골 스캔 — 이 구장 지오메트리에선 비활성 권장.
+                           # 실측 결론(2026-07-16): 측면 카메라 + 골대 뒤 상주 여분공 때문에
+                           # 네트 영역의 시각 신호로는 골/정크 분리 불가 (모션량·모양특징·
+                           # 정지공·공유도 VLM·시퀀스 VLM 모두 recall≤20%). 골 감지는 오디오
+                           # (+V3 필드 비전 확인)가 담당. 골대 뒤 캠을 추가하면 재활성 가치 있음.
   scan_min_prominence: 10  # stricter ROI-only threshold for quiet goals with weak/no cheer
   scan_fps: 2              # cheaper full-game ROI-only scan rate
   scan_frame_px: 32        # cheaper full-game ROI-only frame size

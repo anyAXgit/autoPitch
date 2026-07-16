@@ -52,8 +52,10 @@ def decode(source, t0, dur, roi, fps, margin):
     return frames, tight
 
 
-def find_ball(frame, tight):
-    """Best ball-like white blob whose centroid is INSIDE the tight net box.
+def find_ball(frame, tight, bg=None):
+    """Best ball-like white blob whose centroid is INSIDE the tight net box and
+    which is FOREGROUND vs the temporal background (kills the static white goal
+    frame/posts that otherwise score as an eternal 'ball').
     Returns (score, (cx, cy, r)) or (0, None)."""
     tx, ty, tw, th = tight
     r, g, b = (frame[..., c].astype(int) for c in range(3))
@@ -61,6 +63,8 @@ def find_ball(frame, tight):
     mn = np.minimum(np.minimum(r, g), b); mx = np.maximum(np.maximum(r, g), b)
     sat = (mx - mn) / (mx + 1e-6)
     mask = (bright > 175) & (sat < 0.28)
+    if bg is not None:   # foreground = differs from the per-pixel temporal median
+        mask &= np.abs(frame.astype(int) - bg).mean(axis=2) > 28
     # gate: only inside the net box
     gate = np.zeros_like(mask)
     gate[max(0, ty):ty + th, max(0, tx):tx + tw] = True
@@ -87,8 +91,12 @@ def find_ball(frame, tight):
 
 
 def analyze(frames, tight, min_q=0.35):
-    """Longest run of consecutive frames holding a ball at a stable location."""
-    hits = [find_ball(f, tight) for f in frames]
+    """Longest run of consecutive frames holding a ball at a stable location.
+    Background = per-pixel temporal median over the window: a ball resting 1-3s
+    in a ~6.5s window is minority per pixel, so it survives as foreground, while
+    the static white goal frame cancels out."""
+    bg = np.median(frames, axis=0) if len(frames) else None
+    hits = [find_ball(f, tight, bg) for f in frames]
     run, best_run, best_center = 0, 0, None
     prev = None
     for q, blob in hits:
@@ -139,7 +147,8 @@ def run(game, save=None):
         cam = c.get("goal_cam") or c["segments"][0]["cam"]
         roi = gl.roi_for_cam(cam, rois, src[cam])
         t = c["T"] + off.get(cam, 0.0)
-        frames, tight = decode(src[cam], t - 1.0, 4.5, roi, fps=6, margin=0.12)
+        # longer window so a resting ball stays a per-pixel MINORITY vs the median
+        frames, tight = decode(src[cam], t - 1.0, 6.5, roi, fps=6, margin=0.12)
         best_run, (q, blob), bi = analyze(frames, tight)
         rows.append((c["T"], c.get("scan_conf"), cam, best_run, q))
         if save and blob is not None:

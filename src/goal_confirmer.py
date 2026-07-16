@@ -68,23 +68,27 @@ def _subsample(frames, n):
 
 
 _NET_PROMPT = (
-    "These are close-up crops of a futsal GOAL NET from a fixed camera, sampled "
-    "from just before a motion spike in the net area to a few seconds after it. "
-    "Decide if a GOAL was scored here. Strongest cue: a ball LYING/RESTING inside "
-    "the goal or net in the later frames (after a goal the ball settles there for "
-    "a moment). Also goal: the ball entering the net, or the mesh bulging/rippling "
-    "from a ball impact. It is NOT a goal if the motion is only a goalkeeper's "
-    "body/hands on the net, a player brushing past, someone retrieving a ball "
-    "from beside the goal, or nothing notable.\n"
+    "These are close-up crops of a futsal GOAL NET from a fixed camera around a "
+    "candidate goal moment. Most frames were auto-selected because a ball-like "
+    "white blob appeared inside the net area — your job is to verify it. Decide "
+    "if a GOAL was scored: a ball LYING/RESTING INSIDE the goal/net, the ball "
+    "entering the net, or the mesh bulging from a ball impact. Careful: the "
+    "auto-selector confuses white goal-post edges, pad edges, and white jerseys "
+    "seen through the mesh for a ball — those are NOT goals. Also not a goal: a "
+    "keeper handling the net, someone fetching a ball from beside the goal, a "
+    "ball on the FIELD outside the goal mouth, or nothing notable.\n"
     'Reply with ONLY a JSON object: {"is_goal": true|false, "confidence": 0.0-1.0}.'
 )
 
 
 def net_crops(source, t, roi, out_dir, margin=0.6):
-    """Extract 3 net close-up JPGs around `t` (source timeline) for the Tier-1
-    VLM judge. `roi` is the normalized [x,y,w,h] net box; crop is widened by
-    `margin` on each side for context. Decode-only, 3 fast input seeks."""
+    """Extract net close-up JPGs around `t` (source timeline) for the Tier-1
+    VLM judge. Frame moments are BALL-GUIDED: a dense scan picks the frames most
+    likely to show a ball inside the net (the ball rests there at a variable
+    moment 0-5s after impact — fixed offsets miss it; measured recall 1/5).
+    Falls back to fixed offsets when nothing ball-like is seen."""
     import subprocess
+    from src.ball_frames import select_ball_times
     x, y, w, h = roi
     x0 = max(0.0, x - w * margin)
     y0 = max(0.0, y - h * margin)
@@ -93,12 +97,18 @@ def net_crops(source, t, roi, out_dir, margin=0.6):
     vf = (f"crop=iw*{x1 - x0:.4f}:ih*{y1 - y0:.4f}:iw*{x0:.4f}:ih*{y0:.4f},"
           f"scale=-2:360")
     os.makedirs(out_dir, exist_ok=True)
+    try:
+        times = select_ball_times(source, t, roi)
+    except Exception:
+        times = []
+    # always include one impact-context frame; ball-guided picks carry the evidence
+    moments = [max(0.0, t + 0.2)] + times
+    if not times:   # fallback: spread fixed offsets across the settle window
+        moments += [max(0.0, t + dt) for dt in (-0.5, 1.0, 2.0, 3.5)]
     paths = []
-    # from just before impact to a few seconds after: the ball settles INSIDE the
-    # net after a goal (no blur, no occlusion) -- the later frames catch it at rest.
-    for i, dt in enumerate((-0.5, 0.3, 1.0, 1.8, 2.8)):
+    for i, ts in enumerate(moments):
         p = os.path.join(out_dir, f"net_{t:.1f}_{i}.jpg")
-        subprocess.run(["ffmpeg", "-y", "-v", "error", "-ss", str(max(0.0, t + dt)),
+        subprocess.run(["ffmpeg", "-y", "-v", "error", "-ss", str(ts),
                         "-i", source, "-frames:v", "1", "-vf", vf, p], check=True)
         paths.append(p)
     return paths

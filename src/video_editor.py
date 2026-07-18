@@ -103,35 +103,92 @@ def render_clip(clip, fps, crossfade_sec, work_dir, out_path, width, height, var
         render_segment(seg, fps, sp, width, height, vargs)
         seg_paths.append(sp)
 
-    if len(seg_paths) == 1:
-        _ffmpeg(["-i", seg_paths[0], "-c", "copy", out_path])
-        return out_path
+    # goal_label burns a "GOAL" badge in a final overlay pass; when present the
+    # assembled clip goes to a temp path first, then the overlay writes out_path.
+    goal = bool(clip.get("goal_label"))
+    assembled = os.path.join(work_dir, "assembled.mp4") if goal else out_path
 
-    if crossfade_sec <= 0.01:
+    if len(seg_paths) == 1:
+        # single segment: re-encode only if we still need the overlay pass, else copy
+        _ffmpeg(["-i", seg_paths[0], "-c", "copy", assembled])
+    elif crossfade_sec <= 0.01:
         # hard cut: segments share codec/canvas, so a re-encode concat is enough
         listfile = os.path.join(work_dir, "segs.txt")
         with open(listfile, "w") as f:
             for p in seg_paths:
                 f.write(f"file '{os.path.abspath(p)}'\n")
         _ffmpeg(["-f", "concat", "-safe", "0", "-i", listfile,
-                 *vargs, "-c:a", "aac", out_path])
-        return out_path
+                 *vargs, "-c:a", "aac", assembled])
+    else:
+        current = seg_paths[0]
+        for i, next_path in enumerate(seg_paths[1:], 1):
+            last = i == len(seg_paths) - 1
+            merged = assembled if last else os.path.join(work_dir, f"xfade_{i}.mp4")
+            d1 = probe_duration(current)
+            off = max(0.0, d1 - crossfade_sec)
+            _ffmpeg([
+                "-i", current, "-i", next_path,
+                "-filter_complex",
+                f"[0:v][1:v]xfade=transition=fade:duration={crossfade_sec}:offset={off}[v];"
+                f"[0:a][1:a]acrossfade=d={crossfade_sec}[a]",
+                "-map", "[v]", "-map", "[a]",
+                *vargs, "-c:a", "aac",
+                merged,
+            ])
+            current = merged
 
-    current = seg_paths[0]
-    for i, next_path in enumerate(seg_paths[1:], 1):
-        merged = out_path if i == len(seg_paths) - 1 else os.path.join(work_dir, f"xfade_{i}.mp4")
-        d1 = probe_duration(current)
-        off = max(0.0, d1 - crossfade_sec)
-        _ffmpeg([
-            "-i", current, "-i", next_path,
-            "-filter_complex",
-            f"[0:v][1:v]xfade=transition=fade:duration={crossfade_sec}:offset={off}[v];"
-            f"[0:a][1:a]acrossfade=d={crossfade_sec}[a]",
-            "-map", "[v]", "-map", "[a]",
-            *vargs, "-c:a", "aac",
-            merged,
-        ])
-        current = merged
+    if goal:
+        png = os.path.join(work_dir, "goal.png")
+        _goal_png(width, height, png)
+        at = float(clip.get("goal_at", max(0.0, probe_duration(assembled) / 2)))
+        _burn_goal(assembled, png, at, out_path, vargs)
+    return out_path
+
+
+def _goal_png(width, height, out_path):
+    """Render a 'GOAL' badge to a transparent PNG (PIL) so overlay -- always
+    available -- can composite it, sidestepping ffmpeg builds without drawtext.
+    Sized relative to the canvas; cached per (w,h) by the caller."""
+    from PIL import Image, ImageDraw, ImageFont
+    text = "GOAL"
+    fs = max(48, int(height * 0.14))
+    font = None
+    for fp in ("/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+               "/Library/Fonts/Arial Unicode.ttf",
+               "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"):
+        if os.path.exists(fp):
+            font = ImageFont.truetype(fp, fs); break
+    if font is None:
+        font = ImageFont.load_default()
+    tmp = Image.new("RGBA", (10, 10))
+    d = ImageDraw.Draw(tmp)
+    l, t, r, b = d.textbbox((0, 0), text, font=font, stroke_width=max(2, fs // 16))
+    tw, th = r - l, b - t
+    pad = int(fs * 0.4)
+    img = Image.new("RGBA", (tw + pad * 2, th + pad * 2), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    d.rounded_rectangle([0, 0, img.width - 1, img.height - 1],
+                        radius=int(fs * 0.25), fill=(10, 16, 24, 180))
+    d.text((pad - l, pad - t), text, font=font, fill=(55, 214, 122, 255),
+           stroke_width=max(2, fs // 16), stroke_fill=(4, 16, 31, 255))
+    img.save(out_path)
+    return out_path
+
+
+def _burn_goal(video_path, png_path, at, out_path, vargs, hold=2.0, fade=0.3):
+    """Overlay the GOAL badge (top-center) on the clip from `at` to `at+hold`
+    with a quick fade in/out. Position is seconds-into-clip, so it's correct
+    regardless of which segment the goal falls in."""
+    end = at + hold
+    _ffmpeg([
+        "-i", video_path, "-i", png_path,
+        "-filter_complex",
+        f"[1:v]format=rgba,fade=t=in:st={at}:d={fade}:alpha=1,"
+        f"fade=t=out:st={end - fade}:d={fade}:alpha=1[b];"
+        f"[0:v][b]overlay=(W-w)/2:H*0.08:enable='between(t,{at},{end})'[v]",
+        "-map", "[v]", "-map", "0:a?",
+        *vargs, "-c:a", "aac", out_path,
+    ])
     return out_path
 
 

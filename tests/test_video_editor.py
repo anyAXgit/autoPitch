@@ -375,3 +375,29 @@ def test_reaction_marker_lands_within_tolerance(tmp_path):
         f"(T_used={T_used}, start={start}, seg1_in={seg1_in}, "
         f"crossfade={cfg.crossfade_sec})"
     )
+
+
+def test_render_goal_label_overlays_and_preserves_duration(tmp_path):
+    # A clip flagged goal_label renders (GOAL badge burned via PNG overlay) and
+    # keeps its source duration -- the overlay pass must not drop/extend frames.
+    raw = tmp_path / "raw"
+    make_dummy_set(str(raw), [
+        {"name": "camA", "color": "red", "offset": 0.0, "bursts": [(30, 32, 12)]},
+    ], duration=50.0)
+    res = preprocess_all(str(raw), str(tmp_path / "tv"), str(tmp_path / "ta"),
+                         fps=30, width=320, height=180)
+    cfg = _cfg(tmp_path)
+    peaks = detect_peaks(res["audio"]["camA"], cfg)
+    plan = build_plan(res, {"camA": 0.0}, peaks, "camA", cfg)
+    clip = plan["clips"][0]
+    span = sum(s["src_out"] - s["src_in"] for s in clip["segments"])
+
+    plain = render_plan(plan, str(tmp_path / "plain"))
+    d_plain = probe_duration(plain[0])
+
+    clip["goal_label"] = True
+    clip["goal_at"] = 3.0
+    labeled = render_plan(plan, str(tmp_path / "labeled"))
+    assert os.path.exists(labeled[0])
+    assert abs(probe_duration(labeled[0]) - d_plain) < 0.3   # overlay kept length
+    assert abs(probe_duration(labeled[0]) - span) < 0.6

@@ -423,12 +423,14 @@ async function renderEdit(){
     <div class="ntl">
       <div class="ntl-bar">
         <button class="tbtn on" id="nSnap" title="스냅 (N)">🧲 스냅</button>
+        <button class="tbtn" id="nBlade" title="재생점에서 분할 (B)">🔪 분할</button>
+        <button class="tbtn" id="nGoalLbl" title="선택 클립에 GOAL 라벨 넣기/빼기 (G)">🏷️ GOAL</button>
         <span class="mut">|</span>
         <button class="tbtn" id="zOut">−</button>
         <input id="zoom" type="range" min="3" max="120" value="${PXPS}">
         <button class="tbtn" id="zIn">＋</button>
         <button class="tbtn" id="zFit">맞춤</button>
-        <span style="margin-left:auto" class="mut">클립 <span id="nCnt">0</span> · 합계 <span id="nTot">0:00</span> · <b class="mut">Space</b> 재생 <b class="mut">I/O/C</b> 인·아웃·컷 <b class="mut">⌫</b> 제외</span>
+        <span style="margin-left:auto" class="mut">클립 <span id="nCnt">0</span> · 합계 <span id="nTot">0:00</span> · <b class="mut">Space</b> 재생 <b class="mut">I/O/C</b> 인·아웃·컷 <b class="mut">B</b> 분할 <b class="mut">G</b> 골라벨 <b class="mut">⌫</b> 제외</span>
       </div>
       <div class="ntl-scroll" id="ntlScroll"><div class="ntl-inner" id="ntlInner">
         <div class="nruler" id="nRuler"></div>
@@ -717,7 +719,7 @@ function renderTimeline(){
     el.style.left=x+'px';el.style.width=w+'px';el.dataset.id=c.id;el.draggable=true;
     el.innerHTML=`<canvas class="nwave"></canvas>
       ${segHtml}
-      <div class="nlabel">${mmss(c.data.T)} · ${round(d,1)}s${c.data.goal_cam?' · 🥅'+camName(c.data.goal_cam):''}${c.data.roi_only?` · <span style="color:#f0b429">ROI?${c.data.scan_conf!=null?' '+Math.round(c.data.scan_conf):''}</span>`:''}</div>
+      <div class="nlabel">${mmss(c.data.T)} · ${round(d,1)}s${c.data.goal_label?' · <span style="color:#37d67a;font-weight:700">GOAL</span>':''}${c.data.goal_cam?' · 🥅'+camName(c.data.goal_cam):''}${c.data.roi_only?` · <span style="color:#f0b429">ROI?${c.data.scan_conf!=null?' '+Math.round(c.data.scan_conf):''}</span>`:''}</div>
       <div class="ncams">${segs.map(s=>camName(s.cam)).join(' → ')}</div>
       <div class="trim l"></div><div class="trim r"></div>
       <button class="ndel" title="제외 (⌫)">✕</button>`;
@@ -727,6 +729,7 @@ function renderTimeline(){
     x+=d*PXPS;
   });
   $('#nCnt').textContent=sc.length;$('#nTot').textContent=fmtT(total);
+  const sel=selClip();const gl=$('#nGoalLbl');if(gl)gl.classList.toggle('on',!!(sel&&sel.data.goal_label));
   playN=Math.min(playN,total);updatePh();
 }
 function renderAll(){renderTimeline();renderLib();renderInsp();updUndo();}
@@ -913,6 +916,48 @@ function setAtPlayhead(which){
   renderAll();
 }
 
+/* ---- blade: split the clip under the playhead into two independent clips ---- */
+function bladeAtPlayhead(){
+  const m=locate(playN);if(!m)return;
+  const c=m.clip,segs=c.data.segments,seg=m.seg,cut=m.src,cur=segs[seg];
+  // need >= 0.5s on each side of the cut WITHIN this segment (no zero-length pieces,
+  // and can't blade exactly on an angle-cut boundary)
+  if(cut-cur.src_in<0.5||cur.src_out-cut<0.5)return;
+  const off=cam=>(plan.offsets&&plan.offsets[cam])||0;
+  const clone=s=>({...s});
+  const aSegs=segs.slice(0,seg).map(clone).concat([{...clone(cur),src_out:cut}]);
+  const bSegs=[{...clone(cur),src_in:cut}].concat(segs.slice(seg+1).map(clone));
+  const mk=pieceSegs=>({id:nextId++,include:true,data:{
+    ...JSON.parse(JSON.stringify(c.data)),segments:pieceSegs,
+    T:pieceSegs[0].src_in-off(pieceSegs[0].cam),  // label each piece by its own start
+    roi_only:false,goal_label:false}});   // a hand-cut piece is no longer an auto goal marker
+  const a=mk(aSegs),b=mk(bSegs);
+  // the goal overlay (if any) stays with whichever piece still contains T
+  if(c.data.goal_label){const gt=c.data.T+off(segs[0].cam);(gt<=cut?a:b).data.goal_label=true;
+    (gt<=cut?a:b).data.T=c.data.T;}
+  pushHist();
+  const idx=clips.findIndex(k=>k.id===c.id);
+  clips.splice(idx,1,a,b);
+  selId=b.id;renderAll();
+}
+
+/* ---- GOAL overlay label: mark the selected clip so the render burns in "GOAL".
+   Store goal_at = seconds into the clip where the goal happens, computed here where
+   plan.offsets is available (renderer overlays the PNG at that offset, no offsets
+   needed downstream). ---- */
+function toggleGoalLabel(){
+  const c=selClip();if(!c)return;
+  pushHist();
+  c.data.goal_label=!c.data.goal_label;
+  if(c.data.goal_label){
+    const off=cam=>(plan.offsets&&plan.offsets[cam])||0;
+    const segs=c.data.segments;
+    const clipStartCamA=segs[0].src_in-off(segs[0].cam);
+    c.data.goal_at=clamp(c.data.T-clipStartCamA,0,clipDur(c));
+  }
+  renderAll();
+}
+
 /* ---- shell bindings: transport, ruler, skim, zoom, keys ---- */
 function bindShell(){
   $('#tpPlay').onclick=()=>playing?stopPlay():startPlay();
@@ -939,6 +984,8 @@ function bindShell(){
   });
   $('#ntlScroll').addEventListener('mouseleave',()=>$('#nSkim').style.display='none');
   $('#nSnap').onclick=()=>{snapOn=!snapOn;$('#nSnap').classList.toggle('on',snapOn);};
+  $('#nBlade').onclick=bladeAtPlayhead;
+  $('#nGoalLbl').onclick=toggleGoalLabel;
   const ls=$('#libSort');if(ls)ls.onchange=renderLib;
   const applyZoom=v=>{PXPS=clamp(v,3,120);$('#zoom').value=Math.round(PXPS);renderTimeline();};
   $('#zoom').oninput=e=>{autoFit=false;applyZoom(+e.target.value);};
@@ -962,6 +1009,8 @@ function bindShell(){
       case 'i':case 'I':setAtPlayhead('in');break;
       case 'o':case 'O':setAtPlayhead('out');break;
       case 'c':case 'C':setAtPlayhead('cut');break;
+      case 'b':case 'B':bladeAtPlayhead();break;
+      case 'g':case 'G':toggleGoalLabel();break;
       case 'n':case 'N':$('#nSnap').click();break;
       case 'ArrowLeft':e.preventDefault();seekSeq(playN-(e.shiftKey?1:1/30));break;
       case 'ArrowRight':e.preventDefault();seekSeq(playN+(e.shiftKey?1:1/30));break;

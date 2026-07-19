@@ -1,5 +1,11 @@
 """Prototype: detect kickoff/restart states in the WIDE view (quiet-goal cue).
 
+LICENSE NOTE: the autoPitch project is MIT-licensed, but this OPTIONAL,
+EXPERIMENTAL tool depends on `ultralytics` (YOLO), which is AGPL-3.0. It is not
+imported by the core pipeline and must be pip-installed separately. If you use
+or distribute this tool, you take on ultralytics' AGPL-3.0 obligations for that
+component. Swap in any MIT/BSD person detector to keep everything permissive.
+
 Every goal forces a restart: players drift back to their own halves and play
 resumes from the center. Unlike the net region (measured dead end: oblique
 angle, occlusions, resident spare balls), this signal is people-sized, lasts

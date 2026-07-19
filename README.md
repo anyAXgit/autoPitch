@@ -2,7 +2,7 @@
 
 > (구명: MAHP)
 
-동네 풋살 영상(단일캠 또는 3캠)에서 환호성 오디오 피크로 골을 찾아
+동네 풋살 영상(단일캠부터 4캠까지)에서 환호성 오디오 피크와 골망 ROI로 골을 찾아
 자동으로 하이라이트 .mp4를 만드는 로컬 파이썬 파이프라인.
 
 ## Setup
@@ -12,15 +12,37 @@ python3 -m venv .venv
 ```
 
 ## Usage
-1. `data/raw/`에 영상 넣기 (파일 1개 = 단일캠, 2+ = 멀티캠, 파일명 순 첫 번째가 기준 Cam A)
+1. `data/raw/`에 영상 넣기
+   - 날짜별 권장 구조:
+     ```text
+     data/raw/
+       2026-07-03/
+         cam1/*.MP4
+         cam2/*.MOV
+       2026-07-10/
+         cam1/*.MP4
+         cam2/*.MOV
+     ```
+   - 기존 flat 구조도 지원:
+     ```text
+     data/raw/
+       cam1/*.MP4
+       cam2/*.MOV
+     ```
+   - `cam1`부터 `cam4`까지 지원. 단일캠은 `cam1`만 두면 된다.
 2. 실행:
    ```bash
    ./.venv/bin/python main.py
    ```
 3. 결과: `data/output/highlight_<T>.mp4`, `highlight_all.mp4`, `plan.json`
 
-### 실촬영 다중 경기 (cam1/·cam2/ 폴더에 여러 경기)
-`run_sessions.py`가 파일 촬영시각으로 캠을 경기별 페어링해 각각 렌더한다.
+### 실촬영 다중 경기
+여러 경기 파일이 한 날짜 폴더에 들어 있으면 파일 촬영시각으로 같은 경기의
+카메라들을 페어링한다. 날짜별 폴더가 있으면 날짜마다 경기 1, 2, 3...으로
+분리되고, 기존 `data/raw/cam1`, `data/raw/cam2` 구조는 파일 메타데이터에서
+날짜 라벨을 추론해 하나의 날짜 세션으로 표시한다.
+
+`run_sessions.py`는 같은 페어링 규칙으로 CLI 렌더를 수행한다.
 ```bash
 ./.venv/bin/python run_sessions.py --list      # 페어링 미리보기
 ./.venv/bin/python run_sessions.py --game 1    # 1경기만
@@ -76,7 +98,17 @@ python3 -m venv .venv
 ```
 로컬 서버(파이썬 stdlib, 추가 의존성 없음)가 ffmpeg/파이프라인을 돌리고 원본을
 range 스트리밍하므로 브라우저에서 실제 영상을 스크럽하며 컷을 다듬을 수 있다.
-탭: ① 설정(루트/경기) · ② 골 ROI(프레임에 박스 → net_rois.json) · ③ 편집·렌더.
+탭: ① 설정(루트/날짜별 경기) · ② 골 ROI(프레임에 박스 → net_rois.json) · ③ 편집·렌더.
+
+GUI의 편집 탭은 `날짜` 선택 후 해당 날짜의 `경기`만 보여준다. 내부 분석 캐시는
+`날짜세션:경기번호` 기준으로 분리되므로 서로 다른 날짜의 경기 1이 충돌하지 않는다.
+날짜 폴더가 없는 기존 구조도 그대로 열리며, 이 경우 촬영시각 메타데이터에서
+예: `2026-07-03` 같은 날짜 라벨을 자동 추론한다.
+
+ROI 탭의 `좌우 반전`은 파일별 보기 설정이다. 같은 날짜의 같은 cam 전체에 적용할
+수 있고, 설정은 `data/_gui/view_settings.json`에 저장된다. ROI 화면은 반전된 보기로
+박스를 잡되 좌표는 원본 기준으로 저장하며, 편집 미리보기와 최종 렌더에도 같은
+좌우 반전이 적용된다.
 
 ## plan.json & 편집 UI (정적)
 편집 결정(컷 in/out·앵글)은 `plan.json`에 데이터로 저장된다.
@@ -86,3 +118,11 @@ range 스트리밍하므로 브라우저에서 실제 영상을 스크럽하며 
 ```bash
 ./.venv/bin/python render_from_plan.py plan.edited.json data/output/edited [--bgm data/bgm.mp3]
 ```
+
+## 라이선스
+[MIT](LICENSE) © anyax
+
+의존성 참고:
+- 핵심 파이프라인 의존성(numpy·scipy·librosa·soundfile·PyYAML·Pillow·anthropic)은 모두 허용형(MIT/BSD류).
+- **ffmpeg**은 시스템에 별도 설치해 서브프로세스로 호출한다(코드에 링크·번들하지 않으므로 라이선스가 전이되지 않음).
+- **`tools/kickoff_scan.py`** 는 선택적 실험 프로토타입으로 `ultralytics`(YOLO, **AGPL-3.0**)를 쓴다. 코어 파이프라인은 이를 사용하지 않으며 사용자가 직접 설치해야 한다. 이 도구를 쓰거나 배포하면 해당 부분에 한해 AGPL-3.0 의무가 따른다.

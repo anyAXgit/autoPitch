@@ -77,6 +77,19 @@ def test_render_plan_checks_ffmpeg_filters(tmp_path, monkeypatch):
         render_plan(minimal_plan, str(out_dir))
 
 
+def test_render_segment_applies_hflip_filter(tmp_path, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(video_editor, "_ffmpeg", lambda args: seen.setdefault("args", args))
+    video_editor.render_segment({
+        "src": "in.mp4",
+        "src_in": 1.0,
+        "src_out": 3.0,
+        "hflip": True,
+    }, 30, str(tmp_path / "out.mp4"), 1920, 1080, vargs=["-c:v", "libx264"])
+    vf = seen["args"][seen["args"].index("-vf") + 1]
+    assert vf.startswith("hflip,scale=")
+
+
 def test_render_multicam_clip(tmp_path):
     raw = tmp_path / "raw"
     make_dummy_set(str(raw), [

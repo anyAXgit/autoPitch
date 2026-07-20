@@ -82,10 +82,15 @@ def render_segment(seg, fps, out_path, width, height, vargs=None):
     # canvas here (scale+pad) -- preprocess no longer transcodes video, so
     # this is where mixed cam resolutions become a common size for xfade.
     dur = seg["src_out"] - seg["src_in"]
-    vf = (
-        f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
-        f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2,setsar=1"
-    )
+    filters = []
+    if seg.get("hflip"):
+        filters.append("hflip")
+    filters.extend([
+        f"scale={width}:{height}:force_original_aspect_ratio=decrease",
+        f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2",
+        "setsar=1",
+    ])
+    vf = ",".join(filters)
     _ffmpeg([
         "-ss", str(seg["src_in"]), "-i", seg["src"], "-t", str(dur),
         "-vf", vf, "-vsync", "cfr", "-r", str(fps),

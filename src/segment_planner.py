@@ -90,7 +90,8 @@ def _refine_anchor(pre, offsets, onset, cfg, rois):
     # strong hit right around the onset, the early one is often stale net/keeper
     # motion from the previous phase. Keep the "earliest" rule for normal delayed
     # cheers, but do not let a very early candidate steal a near-onset goal hit.
-    near = [c for c in candidates if onset - 0.75 <= c[0] <= onset + cfg.locate.post_sec]
+    near_post = max(cfg.locate.post_sec, 1.0)
+    near = [c for c in candidates if onset - 1.25 <= c[0] <= onset + near_post]
     earliest = min(candidates, key=lambda x: x[0])
     if near and earliest[0] < onset - 6.0:
         best = max(near, key=lambda x: x[2])
@@ -135,6 +136,103 @@ def _roi_only_anchors(pre, offsets, cfg, rois, existing):
     return [(T, peak, cam, True, conf) for T, peak, cam, conf in kept]
 
 
+def _local_audio_peaks(times, db, threshold, min_gap_sec):
+    """Return local dB maxima above `threshold`, gap-suppressed by loudness."""
+    candidates = []
+    for i in range(1, len(db) - 1):
+        if db[i] >= threshold and db[i] >= db[i - 1] and db[i] >= db[i + 1]:
+            candidates.append((float(times[i]), float(db[i])))
+    if not candidates:
+        return []
+    kept = []
+    for t, loud in candidates:
+        if kept and t - kept[-1][0] < min_gap_sec:
+            if loud > kept[-1][1]:
+                kept[-1] = (t, loud)
+        else:
+            kept.append((t, loud))
+    return kept
+
+
+def _weak_audio_roi_anchors(pre, offsets, cfg, rois, existing, rms_cache, camA, progress=None):
+    """Add candidates when a non-anchor camera has a sub-threshold cheer and its
+    ROI confirms a net hit.
+
+    This is deliberately narrower than full ROI-only scanning: it only probes
+    short windows around local audio peaks, so quiet goals can be recovered
+    without letting every net-area motion event become a clip.
+    """
+    candidates = []
+    weak_k = getattr(cfg.locate, "weak_audio_k", 0.0)
+    if weak_k <= 0:
+        return []
+    jobs = []
+    for cam in pre["cams"]:
+        if cam == camA:
+            continue
+        roi = goal_locator.roi_for_cam(cam, rois, pre["source"].get(cam))
+        if not roi or cam not in rms_cache:
+            continue
+        times, db = rms_cache[cam]
+        threshold = float(np.median(db) + weak_k * np.std(db))
+        off = offsets.get(cam, 0.0)
+        jobs.append((cam, roi, off, _local_audio_peaks(times, db, threshold, cfg.min_gap_sec)))
+    total = sum(len(local_peaks) for _cam, _roi, _off, local_peaks in jobs)
+    done = 0
+    for cam, roi, off, local_peaks in jobs:
+        for peak_src, _loud in local_peaks:
+            done += 1
+            if progress:
+                progress(f"약한 오디오 후보 ROI 확인 {done}/{total} · {cam}", done, max(1, total))
+            peak_ref = peak_src - off
+            if peak_ref < 0:
+                continue
+            r = goal_locator.locate_goal(pre["source"][cam], peak_src, cfg, roi)
+            if not r:
+                continue
+            if r["confidence"] < getattr(cfg.locate, "weak_audio_min_confidence", 0.0):
+                continue
+            T = r["goal_time"] - off
+            max_lead = getattr(cfg.locate, "weak_audio_max_lead_sec", cfg.build_up_sec)
+            if T < peak_ref - max_lead or T > peak_ref + cfg.locate.post_sec:
+                continue
+            candidates.append((T, peak_ref, cam, r["confidence"]))
+    if not candidates:
+        return []
+    candidates.sort(key=lambda x: x[0])
+    kept = []
+    for cand in candidates:
+        if kept and cand[0] - kept[-1][0] < cfg.min_gap_sec:
+            if (cand[0], -cand[3]) < (kept[-1][0], -kept[-1][3]):
+                kept[-1] = cand
+        else:
+            kept.append(cand)
+    return [(T, peak, cam, True, conf) for T, peak, cam, conf in kept]
+
+
+def _dedupe_anchors(anchors, cfg, camA):
+    """Drop only near-identical anchors.
+
+    Weak-audio+ROI anchors are intentionally allowed to sit close to an audio
+    anchor. In real matches those can be distinct phases of play, and merging
+    them loses recall. Full ROI-only scan candidates are already suppressed near
+    existing audio anchors before this point.
+    """
+    if not anchors:
+        return []
+    anchors = sorted(anchors, key=lambda a: a[0])
+    out = []
+    for anchor in anchors:
+        if not out or anchor[0] - out[-1][0] >= 1.0:
+            out.append(anchor)
+            continue
+        cur = out[-1]
+        if cur[3] and anchor[3] and (anchor[4] or 0.0) > (cur[4] or 0.0):
+            out[-1] = anchor
+        # Otherwise keep the earlier/audio-backed anchor.
+    return out
+
+
 def _mean_db(times, db, a, b):
     mask = (times >= a) & (times < b)
     return float(np.mean(db[mask])) if mask.any() else -np.inf
@@ -174,13 +272,20 @@ def pick_reaction_angle(pre, offsets, camA, T, end, cfg, rms_cache):
     return _loudest_other(pre, offsets, camA, T, end, cfg, rms_cache) or camA
 
 
-def build_plan(pre, offsets, peaks, camA, cfg):
+def build_plan(pre, offsets, peaks, camA, cfg, progress=None):
+    def report(label, frac):
+        if progress:
+            progress(label, max(0.0, min(1.0, float(frac))))
+
+    report("카메라 오디오 RMS 분석 중", 0.02)
     times, db = rms_db(pre["audio"][camA], cfg.rms_window_sec)
     rms_cache = {camA: (times, db)}
     if pre["is_multicam"]:
-        for cam in pre["cams"]:
+        others = [cam for cam in pre["cams"] if cam != camA]
+        for i, cam in enumerate(others, 1):
             if cam == camA:
                 continue
+            report(f"카메라 오디오 RMS 분석 중 {i + 1}/{len(others) + 1}", 0.02 + 0.06 * i / max(1, len(others)))
             rms_cache[cam] = rms_db(pre["audio"][cam], cfg.rms_window_sec)
     rois = goal_locator.load_rois(cfg.locate.rois_path) if cfg.locate.enabled else {}
     clips = []
@@ -193,7 +298,9 @@ def build_plan(pre, offsets, peaks, camA, cfg):
     # NEXT one: min_gap (15s) < max_len (25s), so back-to-back goals could
     # otherwise overlap and duplicate the same scene in consecutive clips.
     anchors = []
-    for peak in peaks:
+    for i, peak in enumerate(peaks, 1):
+        mm = f"{int(peak // 60)}:{int(peak % 60):02d}"
+        report(f"ROI 골망 모션 확인 {i}/{len(peaks)} · 피크 {mm}", 0.10 + 0.55 * (i - 1) / max(1, len(peaks)))
         # Anchor timing on the cheer ONSET (goal moment), not the loudness peak,
         # so the buildup reliably contains the shot instead of starting mid-celebration.
         T = cheer_onset(times, db, peak, cfg)
@@ -206,17 +313,17 @@ def build_plan(pre, offsets, peaks, camA, cfg):
             if refined is not None:
                 T, goal_cam = refined
         anchors.append((T, peak, goal_cam, False, None))
+    report(f"오디오 피크 ROI 확인 완료 {len(peaks)}/{len(peaks)}", 0.65)
+    if rois:
+        def weak_progress(label, done, total):
+            report(label, 0.66 + 0.24 * done / max(1, total))
+        anchors.extend(_weak_audio_roi_anchors(pre, offsets, cfg, rois, anchors, rms_cache, camA,
+                                               progress=weak_progress))
     if rois and cfg.locate.scan_enabled:
+        report("전체 ROI-only 후보 스캔 중", 0.90)
         anchors.extend(_roi_only_anchors(pre, offsets, cfg, rois, anchors))
-    anchors.sort(key=lambda a: a[0])   # refinement can nudge order
-    # When two cheers merge into one continuous roar, both onsets can collapse
-    # to the same rise -- that's one goal moment, not two near-identical clips.
-    deduped = []
-    for a in anchors:
-        if deduped and a[0] - deduped[-1][0] < 1.0:
-            continue
-        deduped.append(a)
-    anchors = deduped
+    report("하이라이트 컷과 앵글 구성 중", 0.94)
+    anchors = _dedupe_anchors(anchors, cfg, camA)
 
     for idx, (T, peak, goal_cam, roi_only, scan_conf) in enumerate(anchors):
         start = max(0.0, T - cfg.build_up_sec)
@@ -260,6 +367,7 @@ def build_plan(pre, offsets, peaks, camA, cfg):
                       "goal_cam": goal_cam, "roi_only": bool(roi_only),
                       "scan_conf": (float(scan_conf) if scan_conf is not None else None),
                       "segments": segments})
+    report(f"하이라이트 {len(clips)}개 구성 완료", 1.0)
     return {"fps": cfg.fps, "crossfade_sec": cfg.crossfade_sec,
             "output_width": pre["width"], "output_height": pre["height"],
             "hw_encode": cfg.hw_encode, "clips": clips}

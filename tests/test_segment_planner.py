@@ -360,6 +360,82 @@ def test_build_plan_adds_roi_only_clip_when_audio_has_no_peak(tmp_path, monkeypa
     assert clip["scan_conf"] == 20.0         # net-motion prominence carried for review sorting
 
 
+def test_build_plan_adds_weak_subcam_audio_roi_candidate(tmp_path, monkeypatch):
+    import src.segment_planner as sp
+
+    (tmp_path / "net_rois.json").write_text('{"any":[0,0,1,1]}')
+    cfg = _cfg_yaml(tmp_path, locate={"enabled": True,
+                                      "rois_path": str(tmp_path / "net_rois.json"),
+                                      "weak_audio_k": 2.0,
+                                      "weak_audio_min_confidence": 40.0})
+    times = np.arange(0.0, 140.0, 0.5)
+
+    def fake_rms(path, _window):
+        db = np.full_like(times, -40.0)
+        # Both cams have a weak local audio rise. Only the non-anchor cam should
+        # be allowed to create a new ROI-backed candidate.
+        db[60 if path == "camA.wav" else 62] = -28.0
+        return times, db
+
+    calls = []
+
+    def fake_locate(source, center_time, cfg, roi):
+        calls.append(source)
+        return {"goal_time": center_time - 1.5, "confidence": 80.0}
+
+    monkeypatch.setattr(sp, "rms_db", fake_rms)
+    monkeypatch.setattr(sp.goal_locator, "roi_for_cam", lambda *a, **k: [0, 0, 1, 1])
+    monkeypatch.setattr(sp.goal_locator, "locate_goal", fake_locate)
+    pre = {"cams": ["camA", "camB"], "is_multicam": True,
+           "audio": {"camA": "camA.wav", "camB": "camB.wav"},
+           "source": {"camA": "camA.mp4", "camB": "camB.mp4"},
+           "width": 1920, "height": 1080}
+    plan = sp.build_plan(pre, {"camA": 0.0, "camB": 0.0}, [], "camA", cfg)
+
+    assert calls == ["camB.mp4"]
+    assert len(plan["clips"]) == 1
+    assert plan["clips"][0]["goal_cam"] == "camB"
+    assert plan["clips"][0]["roi_only"] is True
+
+
+def test_build_plan_keeps_weak_subcam_roi_as_separate_close_clip(tmp_path, monkeypatch):
+    import src.segment_planner as sp
+
+    (tmp_path / "net_rois.json").write_text('{"any":[0,0,1,1]}')
+    cfg = _cfg_yaml(tmp_path, locate={"enabled": True,
+                                      "rois_path": str(tmp_path / "net_rois.json"),
+                                      "weak_audio_k": 2.0,
+                                      "weak_audio_min_confidence": 40.0})
+    times = np.arange(0.0, 140.0, 0.5)
+
+    def fake_rms(path, _window):
+        db = np.full_like(times, -40.0)
+        if path == "camA.wav":
+            db[218] = -20.0  # strong main-cam anchor at 109.0
+        else:
+            db[231] = -28.0  # weaker sub-cam candidate at 115.5
+        return times, db
+
+    def fake_locate(source, center_time, cfg, roi):
+        if source == "camB.mp4":
+            return {"goal_time": center_time - 0.5, "confidence": 120.0}
+        return None
+
+    monkeypatch.setattr(sp, "rms_db", fake_rms)
+    monkeypatch.setattr(sp.goal_locator, "roi_for_cam", lambda *a, **k: [0, 0, 1, 1])
+    monkeypatch.setattr(sp.goal_locator, "locate_goal", fake_locate)
+    pre = {"cams": ["camA", "camB"], "is_multicam": True,
+           "audio": {"camA": "camA.wav", "camB": "camB.wav"},
+           "source": {"camA": "camA.mp4", "camB": "camB.mp4"},
+           "width": 1920, "height": 1080}
+    plan = sp.build_plan(pre, {"camA": 0.0, "camB": 0.0}, [109.0], "camA", cfg)
+
+    assert len(plan["clips"]) == 2
+    assert plan["clips"][0]["roi_only"] is False
+    assert plan["clips"][1]["roi_only"] is True
+    assert plan["clips"][1]["goal_cam"] == "camB"
+
+
 def test_audio_backed_clips_not_flagged_roi_only(tmp_path):
     res, offsets = _multicam_res(tmp_path)
     cfg = _cfg(tmp_path)

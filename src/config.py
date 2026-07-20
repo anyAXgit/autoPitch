@@ -37,6 +37,9 @@ class LocateConfig:
     scan_verify: str = "shape"      # ROI-only verification: shape (free) | vlm (net-crop judge)
     scan_verify_model: str = "claude-haiku-4-5-20251001"  # cheap judge; ~3 crops/event
     scan_cache: str = "data/_gui/roi_scan_cache.json"   # whole-match scan results cache
+    weak_audio_k: float = 2.0       # add ROI-verified candidates from sub-threshold audio peaks
+    weak_audio_min_confidence: float = 40.0  # ROI confidence floor for weak-audio candidates
+    weak_audio_max_lead_sec: float = 5.0  # ROI hit may precede weak audio by only a few seconds
     frame_px: int = 64              # ROI downscaled to frame_px^2 for the diff
 
 
@@ -124,6 +127,9 @@ def load_config(path: str = "config.yaml") -> Config:
             scan_min_prominence=locate.get("scan_min_prominence", ldef.scan_min_prominence),
             scan_fps=locate.get("scan_fps", ldef.scan_fps),
             scan_frame_px=locate.get("scan_frame_px", ldef.scan_frame_px),
+            weak_audio_k=locate.get("weak_audio_k", ldef.weak_audio_k),
+            weak_audio_min_confidence=locate.get("weak_audio_min_confidence", ldef.weak_audio_min_confidence),
+            weak_audio_max_lead_sec=locate.get("weak_audio_max_lead_sec", ldef.weak_audio_max_lead_sec),
             frame_px=locate.get("frame_px", ldef.frame_px),
         ),
     )

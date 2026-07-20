@@ -47,4 +47,7 @@ locate:                   # net-ROI goal localization (fixed cameras); off by de
   scan_max_candidates: 40  # 러프 후보 상위 N개만 정밀검증 (비용 상한)
   scan_verify: vlm         # ROI-only 후보 검증: shape(무료) | vlm(네트 크롭 AI 판정, API 키 필요)
   scan_verify_model: claude-haiku-4-5-20251001  # 판정용 저비용 모델 (이벤트당 크롭 3장)
+  weak_audio_k: 2.0        # 정식 피크 미만이어도 보조 카메라 오디오가 이 정도 튀면 ROI로 검증
+  weak_audio_min_confidence: 40 # 약한 오디오 후보를 살릴 최소 ROI 모션 신뢰도
+  weak_audio_max_lead_sec: 5    # ROI 히트가 약한 오디오보다 너무 앞서면 stale 후보로 간주
 # main_cam: camA   # cam id to use as Cam A / goal-detection + buildup reference (default: first cam alphabetically)

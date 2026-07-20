@@ -76,6 +76,7 @@ def choose_native_dir(initial=""):
 
 
 VIDEO_EXTS = (".mp4", ".mov", ".m4v")
+MIN_GAME_CLIP_SEC = 60.0
 
 
 def _cam_sort_key(name):
@@ -110,35 +111,94 @@ def _probe(path):
     return start, dur
 
 
-def camera_dirs():
-    root = STATE["root"]
-    raw = os.path.join(root, "data", "raw")
-    if not os.path.isdir(raw):
+def _session_id(rel):
+    return (rel or "root").replace("\\", "/").strip("/").replace("/", "__") or "root"
+
+
+def _session_label(rel, full):
+    name = os.path.basename(full.rstrip(os.sep)) if rel else ""
+    if name:
+        if re.fullmatch(r"\d{6}", name):
+            return f"20{name[:2]}-{name[2:4]}-{name[4:6]}"
+        return name
+    videos = []
+    for cam_id, d in _camera_dirs_in(full):
+        videos.extend(_list_videos(d))
+    for p in videos[:1]:
+        try:
+            start, _dur = _probe(p)
+            if start is not None:
+                from datetime import datetime
+                return datetime.fromtimestamp(start).strftime("%Y-%m-%d")
+        except Exception:
+            pass
+    return "기본"
+
+
+def _camera_dirs_in(base):
+    if not os.path.isdir(base):
         return []
     dirs = []
-    for name in sorted(os.listdir(raw), key=_cam_sort_key):
-        full = os.path.join(raw, name)
+    for name in sorted(os.listdir(base), key=_cam_sort_key):
+        full = os.path.join(base, name)
         if os.path.isdir(full) and re.match(r"^cam\d+$", name, re.I):
             dirs.append((name.lower(), full))
     return dirs
 
 
+def raw_sessions():
+    root = STATE["root"]
+    raw = os.path.join(root, "data", "raw")
+    if not os.path.isdir(raw):
+        return []
+    sessions = []
+    if _camera_dirs_in(raw):
+        sessions.append({"id": _session_id(""), "rel": "", "path": raw,
+                         "label": _session_label("", raw)})
+    for name in sorted(os.listdir(raw), key=str.lower):
+        full = os.path.join(raw, name)
+        if not os.path.isdir(full) or re.match(r"^cam\d+$", name, re.I):
+            continue
+        if _camera_dirs_in(full):
+            rel = os.path.relpath(full, raw)
+            sessions.append({"id": _session_id(rel), "rel": rel, "path": full,
+                             "label": _session_label(rel, full)})
+    return sessions
+
+
+def camera_dirs(session=None):
+    sessions = raw_sessions()
+    if session is not None:
+        sid = str(session)
+        sessions = [s for s in sessions if s["id"] == sid or s["rel"] == sid]
+    if not sessions:
+        return []
+    return _camera_dirs_in(sessions[0]["path"])
+
+
 def camera_status():
     root = STATE["root"]
     raw = os.path.join(root, "data", "raw")
+    sessions = []
     dirs = []
-    for cam_id, full in camera_dirs():
-        files = _list_videos(full)
-        dirs.append({
-            "id": cam_id,
-            "path": os.path.relpath(full, root),
-            "count": len(files),
-            "files": [os.path.basename(f) for f in files[:4]],
-        })
+    for sess in raw_sessions():
+        scams = []
+        for cam_id, full in _camera_dirs_in(sess["path"]):
+            files = _list_videos(full)
+            item = {
+                "id": cam_id,
+                "path": os.path.relpath(full, root),
+                "count": len(files),
+                "files": [os.path.basename(f) for f in files[:4]],
+            }
+            scams.append(item)
+            dirs.append(item)
+        sessions.append({**sess, "cameras": scams, "count": sum(c["count"] for c in scams)})
     return {
         "raw_exists": os.path.isdir(raw),
         "config_exists": os.path.exists(os.path.join(root, "config.yaml")),
         "cameras": dirs,
+        "sessions": sessions,
     }
 
 
@@ -155,8 +215,36 @@ def state_payload():
         "games": games,
         "rois_exists": os.path.exists(rois_p),
         "setup": camera_status(),
+        "view_settings": load_view_settings(),
         "setup_error": setup_error,
     }
+
+
+def _view_settings_path():
+    return os.path.join(STATE["root"], "data", "_gui", "view_settings.json")
+
+
+def load_view_settings():
+    p = _view_settings_path()
+    if not os.path.exists(p):
+        return {"flips": {}}
+    with open(p) as f:
+        data = json.load(f)
+    data.setdefault("flips", {})
+    return data
+
+
+def save_view_settings(data):
+    p = _view_settings_path()
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    data = data if isinstance(data, dict) else {}
+    flips = data.get("flips", {})
+    if not isinstance(flips, dict):
+        flips = {}
+    data["flips"] = {str(k): True for k, v in flips.items() if v}
+    with open(p, "w") as f:
+        json.dump(data, f, indent=2)
+    return data
 
 
 def list_dirs(rel=""):
@@ -179,7 +267,7 @@ def list_dirs(rel=""):
     return {"path": cur, "parent": parent, "dirs": dirs}
 
 
-def games_list():
+def _games_for_session(sess, global_start=1):
     """Group one to four camera folders into games by capture time.
 
     The first camera folder (cam1) is the anchor. For each cam1 clip, the nearest
@@ -187,13 +275,14 @@ def games_list():
     yields one game per cam1 clip.
     """
     root = STATE["root"]
-    dirs = camera_dirs()
+    dirs = _camera_dirs_in(sess["path"])
     if not dirs:
         return []
     tracks = {}
     for cam_id, d in dirs[:4]:
         clips = [{"path": p, "start": s, "dur": dur}
-                 for p in _list_videos(d) for s, dur in [_probe(p)]]
+                 for p in _list_videos(d) for s, dur in [_probe(p)]
+                 if dur >= MIN_GAME_CLIP_SEC]
         if not clips:
             return []
         if len(dirs) > 1 and any(c["start"] is None for c in clips):
@@ -223,7 +312,12 @@ def games_list():
         else:
             overlap = min(c["dur"] for c in cams.values())
         item = {
-            "game": i,
+            "game": global_start + i - 1,
+            "game_no": i,
+            "game_key": f"{sess['id']}:{i}",
+            "session": sess["id"],
+            "session_rel": sess["rel"],
+            "session_label": sess["label"],
             "cameras": [
                 {"id": cam, "path": os.path.relpath(c["path"], root),
                  "start": c["start"], "dur": c["dur"]}
@@ -242,8 +336,34 @@ def games_list():
     return out
 
 
+def games_list():
+    out = []
+    next_game = 1
+    for sess in raw_sessions():
+        games = _games_for_session(sess, next_game)
+        out.extend(games)
+        next_game += len(games)
+    return out
+
+
+def _game_cache_key(game):
+    if isinstance(game, dict):
+        game = game.get("game_key") or game.get("game")
+    s = str(game)
+    return re.sub(r"[^A-Za-z0-9._:-]+", "_", s).replace(":", "__")
+
+
+def _find_game(game):
+    games = games_list()
+    s = str(game)
+    for g in games:
+        if s == str(g.get("game_key")) or s == str(g.get("game")):
+            return g
+    raise KeyError(f"unknown game: {game}")
+
+
 def _plan_cache_path(game):
-    return os.path.join(STATE["root"], "data", "_gui", f"plan_game{game}.json")
+    return os.path.join(STATE["root"], "data", "_gui", f"plan_game_{_game_cache_key(game)}.json")
 
 
 def cached_plan(game):
@@ -253,7 +373,11 @@ def cached_plan(game):
     if not os.path.exists(p):
         return None
     deps = [os.path.join(STATE["root"], "config.yaml"),
-            os.path.join(STATE["root"], "net_rois.json")]
+            os.path.join(STATE["root"], "net_rois.json"),
+            _view_settings_path(),
+            os.path.join(STATE["root"], "src", "segment_planner.py"),
+            os.path.join(STATE["root"], "src", "goal_locator.py"),
+            os.path.join(STATE["root"], "src", "config.py")]
     newest_dep = max((os.path.getmtime(d) for d in deps if os.path.exists(d)), default=0)
     if os.path.getmtime(p) < newest_dep:
         return None
@@ -304,9 +428,9 @@ def compute_plan(game, on_step=None):
         cfg.locate.pre_sec = max(cfg.locate.pre_sec, cfg.build_up_sec + 11.0)
         cfg.locate.post_sec = max(cfg.locate.post_sec, 1.0)
     step(2, 7, "경기 파일 묶는 중")
-    gl = games_list()
-    g = next(x for x in gl if x["game"] == game)
-    stage = os.path.join(root, "data", "_gui", f"game{game}")
+    g = _find_game(game)
+    cache_key = _game_cache_key(g)
+    stage = os.path.join(root, "data", "_gui", f"game_{cache_key}")
     os.makedirs(stage, exist_ok=True)
     for name in os.listdir(stage):
         if os.path.splitext(name)[1].lower() in VIDEO_EXTS:
@@ -323,7 +447,7 @@ def compute_plan(game, on_step=None):
         staged_sources[cam["id"]] = src
     step(3, 7, "카메라별 분석 오디오 추출 중")
     pre = preprocess_all(stage, os.path.join(root, "data", "_gui", "tv"),
-                         os.path.join(root, "data", "_gui", f"ta{game}"),
+                         os.path.join(root, "data", "_gui", f"ta_{cache_key}"),
                          cfg.fps, cfg.output_width, cfg.output_height)
     # point plan sources at the real originals (so /media can serve them for scrubbing)
     pre["source"] = {c: staged_sources[c] for c in pre["cams"]}
@@ -333,14 +457,27 @@ def compute_plan(game, on_step=None):
     step(5, 7, "함성 피크 감지 중")
     peaks = detect_peaks(pre["audio"][camA], cfg)
     step(6, 7, "ROI 골망 모션과 앵글 구성 중")
-    plan = build_plan(pre, offsets, peaks, camA, cfg)
+    def plan_progress(label, frac):
+        # Stage 6 is the expensive ROI/angle phase. Report subprogress between
+        # the completed peak-detection step (5/7) and the save step (7/7).
+        step(5.0 + max(0.0, min(1.0, float(frac))), 7, label)
+    plan = build_plan(pre, offsets, peaks, camA, cfg, progress=plan_progress)
+    view_settings = load_view_settings()
+    flips = view_settings.get("flips", {})
     # rewrite src to root-relative so the browser can request /media/<rel>
     for clip in plan["clips"]:
         for seg in clip["segments"]:
-            seg["src_rel"] = os.path.relpath(seg["src"], root)
-    plan["game"] = game
+            rel = os.path.relpath(seg["src"], root)
+            seg["src_rel"] = rel
+            seg["hflip"] = bool(flips.get(rel))
+    plan["game"] = g["game"]
+    plan["game_no"] = g.get("game_no", g["game"])
+    plan["game_key"] = g.get("game_key", str(g["game"]))
+    plan["session"] = g.get("session")
+    plan["session_label"] = g.get("session_label")
     plan["offsets"] = offsets
     plan["camera_labels"] = {c: c for c in pre["cams"]}
+    plan["video_flips"] = {k: bool(v) for k, v in flips.items() if v}
     plan["locate_enabled"] = bool(cfg.locate.enabled and os.path.exists(cfg.locate.rois_path or ""))
     plan["locate_window"] = {"pre_sec": cfg.locate.pre_sec, "post_sec": cfg.locate.post_sec}
     # analysis WAV per cam -- the editor timeline draws its waveform from these
@@ -444,7 +581,7 @@ def _plan_job(job_id, game, fresh):
 
 
 def start_plan_job(game, fresh=False):
-    key = (STATE["root"], int(game), bool(fresh))
+    key = (STATE["root"], str(game), bool(fresh))
     with PLAN_LOCK:
         existing = PLAN_INFLIGHT.get(key)
         if existing and PLAN_JOBS.get(existing, {}).get("status") == "running":
@@ -582,6 +719,8 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/api/rois":
                 p = os.path.join(STATE["root"], "net_rois.json")
                 return self._json(json.load(open(p)) if os.path.exists(p) else {})
+            if u.path == "/api/view_settings":
+                return self._json(load_view_settings())
             if u.path == "/api/dirs":
                 return self._json(list_dirs(urllib.parse.unquote(q.get("path", [""])[0])))
             if u.path == "/api/choose_dir":
@@ -592,7 +731,7 @@ class Handler(BaseHTTPRequestHandler):
                 t = float(q.get("t", ["0"])[0])
                 return self._send_file(grab_frame(q["path"][0], t), "image/jpeg")
             if u.path == "/api/plan":
-                game = int(q["game"][0])
+                game = q["game"][0]
                 fresh = q.get("fresh", ["0"])[0] == "1"
                 plan = None if fresh else cached_plan(game)
                 if plan is None:
@@ -677,8 +816,10 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/api/rois":
                 json.dump(body["rois"], open(os.path.join(STATE["root"], "net_rois.json"), "w"), indent=2)
                 return self._json({"ok": True})
+            if u.path == "/api/view_settings":
+                return self._json(save_view_settings(body))
             if u.path == "/api/plan_start":
-                job = start_plan_job(int(body["game"]), bool(body.get("fresh")))
+                job = start_plan_job(body["game"], bool(body.get("fresh")))
                 return self._json({"job": job})
             if u.path == "/api/render":
                 job = start_render(body["plan"], body.get("out", "data/output/gui"),

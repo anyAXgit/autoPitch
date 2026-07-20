@@ -147,11 +147,19 @@ const $=s=>document.querySelector(s);
 const api=async(p,o)=>{const r=await fetch(p,o);const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||r.status);return j;};
 const mmss=s=>`${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`;
 const round=(n,d=2)=>Math.round(n*10**d)/10**d;
-let STATE={root:'',games:[],rois_exists:false};
+let STATE={root:'',games:[],rois_exists:false,view_settings:{flips:{}}};
 const gameCams=g=>g.cameras||[
   ...(g.cam1?[{id:'cam1',path:g.cam1,dur:g.dur1}]:[]),
   ...(g.cam2?[{id:'cam2',path:g.cam2,dur:g.dur2}]:[])
 ];
+const gameKey=g=>g.game_key||String(g.game);
+const gameNo=g=>g.game_no||g.game;
+const sessions=()=>Array.from(new Map((STATE.games||[]).map(g=>[g.session||'root',{
+  id:g.session||'root',label:g.session_label||'기본'
+}])).values());
+const gamesForSession=sid=>(STATE.games||[]).filter(g=>(g.session||'root')===sid);
+let setupSession=null;
+const activeSession=()=>window._edSession||setupSession||sessions()[0]?.id||'root';
 
 document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{
   document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('on',x===b));
@@ -166,27 +174,34 @@ async function loadState(){ STATE=await api('/api/state'); $('#root').textConten
 /* ---------- ① SETUP ---------- */
 let setupCamCount=2;
 function renderSetup(){
-  const g=STATE.games;
   const setup=STATE.setup||{config_exists:false,raw_exists:false,cameras:[]};
-  const cams=setup.cameras||[];
+  const ss=setup.sessions&&setup.sessions.length
+    ? setup.sessions.map(s=>({id:s.id,label:s.label,cameras:s.cameras||[],count:s.count||0}))
+    : [{id:'root',label:'기본',cameras:setup.cameras||[],count:(setup.cameras||[]).reduce((a,c)=>a+c.count,0)}];
+  if(!setupSession||!ss.some(s=>s.id===setupSession))setupSession=ss[0]?.id||'root';
+  const curSession=ss.find(s=>s.id===setupSession)||ss[0]||{cameras:[]};
+  const g=gamesForSession(setupSession);
+  const cams=curSession.cameras||[];
   setupCamCount=Math.max(setupCamCount,cams.length||1);
   const totalFiles=cams.reduce((a,c)=>a+c.count,0);
+  const allFiles=ss.reduce((a,s)=>a+(s.count||0),0);
+  const allGames=STATE.games||[];
   const maxCams=Math.max(1,...g.map(x=>gameCams(x).length));
   const camHeaders=Array.from({length:maxCams},(_,i)=>`<th>cam${i+1}</th>`).join('');
   const status=[
     {ok:setup.config_exists,title:'프로젝트 확인',desc:setup.config_exists?'하이라이트 설정 파일을 찾았습니다.':'선택한 폴더에서 config.yaml을 찾지 못했습니다. autoPitch 프로젝트 폴더를 선택하세요.'},
     {ok:setup.raw_exists&&cams.length,title:'카메라 폴더',desc:cams.length?`${cams.length}개 카메라 폴더가 준비되어 있습니다.`:'촬영 방식에 맞춰 아래 버튼으로 작업 공간을 준비하세요.'},
-    {ok:totalFiles>0,title:'원본 영상',desc:totalFiles?`${totalFiles}개 원본 영상을 찾았습니다.`:'준비된 cam 폴더에 경기 영상을 넣으면 자동으로 감지합니다.'},
-    {ok:g.length>0,warn:totalFiles>0&&!g.length,title:'경기 감지',desc:g.length?`${g.length}개 경기를 편집할 수 있습니다.`:(totalFiles?'영상은 있지만 아직 경기로 묶지 못했습니다. 여러 카메라 촬영본은 촬영시각 메타데이터가 필요합니다.':'영상이 들어오면 여기에 경기 목록이 표시됩니다.')},
+    {ok:allFiles>0,title:'원본 영상',desc:allFiles?`${allFiles}개 원본 영상을 찾았습니다.`:'준비된 cam 폴더에 경기 영상을 넣으면 자동으로 감지합니다.'},
+    {ok:allGames.length>0,warn:allFiles>0&&!allGames.length,title:'경기 감지',desc:allGames.length?`${allGames.length}개 경기를 편집할 수 있습니다.`:(allFiles?'영상은 있지만 아직 경기로 묶지 못했습니다. 여러 카메라 촬영본은 촬영시각 메타데이터가 필요합니다.':'영상이 들어오면 여기에 경기 목록이 표시됩니다.')},
   ];
   const next=STATE.setup_error
     ? {title:'영상 정보를 읽지 못했습니다',desc:STATE.setup_error,actions:''}
     : !setup.config_exists
       ? {title:'프로젝트 폴더를 먼저 맞춰 주세요',desc:'상단 입력칸에 autoPitch 프로젝트 폴더를 지정하면 현재 상태를 다시 확인합니다.',actions:''}
-      : !totalFiles
+        : !allFiles
         ? {title:'원본 영상을 넣으면 시작됩니다',desc:'촬영 방식에 맞춰 작업 공간을 만든 뒤 Finder에서 각 cam 폴더에 영상을 넣고 새로고침하세요.',actions:'prepare'}
-        : g.length
-          ? {title:'편집 준비 완료',desc:STATE.rois_exists?'바로 하이라이트를 불러오거나, 필요하면 ROI를 다시 조정할 수 있습니다.':'골망 ROI를 잡으면 골 장면 앵커가 더 정확해집니다.',actions:'ready'}
+        : allGames.length
+          ? {title:'편집 준비 완료',desc:STATE.rois_exists?'날짜 폴더를 선택한 뒤 하이라이트를 불러오거나, 필요하면 ROI를 다시 조정할 수 있습니다.':'골망 ROI를 잡으면 골 장면 앵커가 더 정확해집니다.',actions:'ready'}
           : {title:'영상은 찾았지만 경기 목록이 비어 있습니다',desc:'단일캠은 cam1만 사용하세요. 여러 카메라는 각 cam 폴더의 파일 수와 촬영시각이 맞는지 확인한 뒤 새로고침하세요.',actions:'refresh'};
   $('#setup').innerHTML=`
     <div class="setup-grid">
@@ -219,14 +234,15 @@ function renderSetup(){
       </div>
       <div>
         <div class="card">
-          <div class="row"><b>카메라 입력</b><span class="mut">${totalFiles}개 파일</span></div>
+          <div class="row"><b>카메라 입력</b><span class="mut">${totalFiles}개 파일 · 전체 ${allFiles}개</span></div>
+          ${ss.length>1?`<div class="row"><span class="mut">날짜 폴더</span><select id="setupSession">${ss.map(s=>`<option value="${s.id}" ${s.id===setupSession?'selected':''}>${s.label}</option>`).join('')}</select></div>`:''}
           ${cams.length?`<div class="cam-grid">${cams.map(c=>`<div class="cam-box"><b>${c.id}</b><div>${c.count}개 영상</div><div class="files">${c.files.length?c.files.join('<br>'):'비어 있음'}</div></div>`).join('')}</div>`
             :'<div class="mut">아직 카메라 폴더가 없습니다. 촬영 방식 선택 후 작업 공간을 준비하세요.</div>'}
         </div>
         <div class="card">
           <div class="row"><b>감지된 경기</b> ${STATE.rois_exists?'<span class="mut">ROI 저장됨</span>':'<span class="mut">ROI 미설정</span>'}</div>
-          ${g.length?`<table><tr><th>경기</th>${camHeaders}<th>겹침</th></tr>
-            ${g.map(x=>{const gc=gameCams(x);return `<tr><td>${x.game}</td>${Array.from({length:maxCams},(_,i)=>`<td>${gc[i]?gc[i].path.split('/').pop():''}</td>`).join('')}<td>${mmss(x.overlap)}</td></tr>`;}).join('')}</table>`
+          ${g.length?`<table><tr><th>날짜</th><th>경기</th>${camHeaders}<th>겹침</th></tr>
+            ${g.map(x=>{const gc=gameCams(x);return `<tr><td>${x.session_label||'기본'}</td><td>${gameNo(x)}</td>${Array.from({length:maxCams},(_,i)=>`<td>${gc[i]?gc[i].path.split('/').pop():''}</td>`).join('')}<td>${mmss(x.overlap)}</td></tr>`;}).join('')}</table>`
             :'<div class="mut">아직 편집 가능한 경기가 없습니다.</div>'}
         </div>
       </div>
@@ -234,20 +250,28 @@ function renderSetup(){
   const refresh=async()=>{STATE=await api('/api/state');$('#root').textContent='📁 '+STATE.root;renderSetup();};
   $('#setRoot').onclick=async()=>{ try{ STATE=await api('/api/root',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:$('#rootIn').value})}); $('#root').textContent='📁 '+STATE.root; renderSetup(); }catch(e){alert(e.message);} };
   $('#reloadState').onclick=()=>refresh().catch(e=>alert(e.message));
+  $('#setupSession')?.addEventListener('change',e=>{setupSession=e.target.value;window._edSession=setupSession;renderSetup();});
   $('#refreshOnly')?.addEventListener('click',()=>refresh().catch(e=>alert(e.message)));
-  $('#goEdit')?.addEventListener('click',()=>document.querySelector('[data-tab="edit"]').click());
-  $('#goCal')?.addEventListener('click',()=>document.querySelector('[data-tab="cal"]').click());
+  $('#goEdit')?.addEventListener('click',()=>{window._edSession=setupSession;document.querySelector('[data-tab="edit"]').click();});
+  $('#goCal')?.addEventListener('click',()=>{window._edSession=setupSession;document.querySelector('[data-tab="cal"]').click();});
   document.querySelectorAll('[data-cams]').forEach(b=>b.onclick=()=>{setupCamCount=parseInt(b.dataset.cams,10);renderSetup();});
   $('#prepFolders')?.addEventListener('click',async()=>{try{STATE=await api('/api/prepare',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cams:setupCamCount})});$('#root').textContent='📁 '+STATE.root;renderSetup();}catch(e){alert(e.message);}});
 }
 
 /* ---------- ② CALIBRATION ---------- */
-let calImg=null, calBox=null, calDrag=null, rois={};
+let calImg=null, calBox=null, calDrag=null, rois={}, viewSettings={flips:{}};
 async function renderCal(){
   rois=await api('/api/rois').catch(()=>({}));
+  viewSettings=await api('/api/view_settings').catch(()=>STATE.view_settings||{flips:{}});
+  viewSettings.flips=viewSettings.flips||{};
+  const ss=sessions();
+  const calSession=activeSession();
+  window._edSession=calSession;
+  setupSession=calSession;
+  const sessionGames=gamesForSession(calSession);
   const camItems=[];
   const seen=new Set();
-  STATE.games.flatMap(gameCams).forEach(c=>{if(c.path&&!seen.has(c.path)){seen.add(c.path);camItems.push(c);}});
+  sessionGames.flatMap(gameCams).forEach(c=>{if(c.path&&!seen.has(c.path)){seen.add(c.path);camItems.push(c);}});
   const cams=camItems.map(c=>c.path);
   const camByPath=Object.fromEntries(camItems.map(c=>[c.path,c]));
   const camId=p=>(camByPath[p]&&camByPath[p].id)||'cam1';
@@ -257,7 +281,10 @@ async function renderCal(){
     <div class="card">
       <div class="row"><b>골망 ROI 캘리브레이션</b> <span class="mut">파일마다 가까운 골망 하나를 드래그로 박스. 경기·카메라별 프레임 차이를 따로 저장합니다.</span></div>
       <div class="row">
+        <select id="calSession">${ss.map(s=>`<option value="${s.id}" ${s.id===calSession?'selected':''}>${s.label}</option>`).join('')}</select>
         <select id="calCam"></select>
+        <label class="mut"><input id="calFlip" type="checkbox"> 좌우 반전</label>
+        <button class="tbtn" id="calFlipCam" title="현재 날짜의 같은 cam 전체에 반전 설정 적용">같은 cam 전체 적용</button>
         <label class="mut">시각(초) <input id="calT" type="number" value="60" step="5"></label>
         <button class="btn" id="calGrab">프레임 새로고침</button>
         <input id="calKey" type="hidden">
@@ -270,19 +297,31 @@ async function renderCal(){
     </div>`;
   const cv=$('#calCv'),ctx=cv.getContext('2d');
   const curKey=()=>$('#calKey').value.trim();
+  const isFlippedKey=key=>!!viewSettings.flips[key];
+  const isFlipped=()=>isFlippedKey(curKey());
+  const viewToStore=(box,key=curKey())=>isFlippedKey(key)?{x:cv.width-box.x-box.w,y:box.y,w:box.w,h:box.h}:box;
+  const storeToView=(box,key=curKey())=>isFlippedKey(key)?{x:cv.width-box.x-box.w,y:box.y,w:box.w,h:box.h}:box;
   const calMsg=(txt,color)=>{ctx.fillStyle='#0e1116';ctx.fillRect(0,0,cv.width,cv.height);ctx.fillStyle=color;ctx.font='14px sans-serif';ctx.fillText(txt,20,cv.height/2);};
   const fillCams=()=>{
     const sel=$('#calCam'), keep=sel.value;
     sel.innerHTML=cams.map(c=>{const done=rois[keyGuess(c)]?' ✓':'';return `<option value="${c}">${camPathLabel(c)}${done}</option>`;}).join('');
     if(keep&&cams.includes(keep))sel.value=keep;
   };
-  const restoreBox=()=>{const v=rois[curKey()];calBox=v?{x:v[0]*cv.width,y:v[1]*cv.height,w:v[2]*cv.width,h:v[3]*cv.height}:null;};
+  const restoreBox=()=>{const v=rois[curKey()];calBox=v?storeToView({x:v[0]*cv.width,y:v[1]*cv.height,w:v[2]*cv.width,h:v[3]*cv.height}):null;};
   const updStat=()=>{$('#calStat').textContent=rois[curKey()]?'✓ 이 파일 저장됨':'미설정 — 골망을 드래그';};
   window.drawCal=()=>{ctx.clearRect(0,0,cv.width,cv.height);
-    if(calImg)ctx.drawImage(calImg,0,0,cv.width,cv.height);
+    if(calImg){
+      if(isFlipped()){ctx.save();ctx.translate(cv.width,0);ctx.scale(-1,1);ctx.drawImage(calImg,0,0,cv.width,cv.height);ctx.restore();}
+      else ctx.drawImage(calImg,0,0,cv.width,cv.height);
+    }
     if(calBox){ctx.strokeStyle='#37d67a';ctx.lineWidth=2;ctx.strokeRect(calBox.x,calBox.y,calBox.w,calBox.h);ctx.fillStyle='rgba(55,214,122,.15)';ctx.fillRect(calBox.x,calBox.y,calBox.w,calBox.h);}};
   let calReq=0, calShownKey=null;   // token to discard stale loads + key of the frame ACTUALLY shown
   const grab=()=>{
+    if(!cams.length){
+      calImg=null; calBox=null; calShownKey=null;
+      calMsg('선택한 날짜 폴더에 편집 가능한 카메라 영상이 없습니다.','#8b95a3');
+      return;
+    }
     const myReq=++calReq;
     const cam=$('#calCam').value, key=curKey(), t=$('#calT').value;   // capture key at request time
     calImg=null; calBox=null; calShownKey=null;
@@ -291,16 +330,35 @@ async function renderCal(){
     im.onload=()=>{ if(myReq!==calReq) return;   // a newer switch happened -> ignore this stale frame
       calImg=im; calShownKey=key;
       const w=Math.min(720,im.naturalWidth); cv.width=w; cv.height=Math.round(im.naturalHeight*w/im.naturalWidth);
-      const v=rois[key]; calBox=v?{x:v[0]*cv.width,y:v[1]*cv.height,w:v[2]*cv.width,h:v[3]*cv.height}:null;  // restore THIS key's box
+      const v=rois[key]; calBox=v?storeToView({x:v[0]*cv.width,y:v[1]*cv.height,w:v[2]*cv.width,h:v[3]*cv.height},key):null;  // restore THIS key's box
       drawCal(); updStat();
     };
     im.onerror=()=>{ if(myReq!==calReq) return; calImg=null; calMsg('프레임 로드 실패 — 서버가 켜져 있는지 확인하세요 (gui/server.py)','#ff6b6b'); };
     im.src=`/api/frame?path=${encodeURIComponent(cam)}&t=${t}`;
   };
   fillCams();
-  $('#calKey').value=keyGuess($('#calCam').value);
-  $('#calCam').onchange=()=>{$('#calKey').value=keyGuess($('#calCam').value);grab();};
-  $('#calKey').oninput=()=>{if(calImg)calShownKey=curKey();restoreBox();drawCal();updStat();};
+  $('#calKey').value=cams.length?keyGuess($('#calCam').value):'';
+  $('#calSession').onchange=e=>{window._edSession=e.target.value;setupSession=e.target.value;renderCal();};
+  const syncFlip=()=>{$('#calFlip').checked=isFlipped();};
+  $('#calCam').onchange=()=>{$('#calKey').value=keyGuess($('#calCam').value);syncFlip();grab();};
+  $('#calKey').oninput=()=>{if(calImg)calShownKey=curKey();syncFlip();restoreBox();drawCal();updStat();};
+  $('#calFlip').onchange=async e=>{
+    const key=curKey();
+    if(!key)return;
+    if(e.target.checked)viewSettings.flips[key]=true;else delete viewSettings.flips[key];
+    await api('/api/view_settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(viewSettings)});
+    if(plan){plan.video_flips=Object.fromEntries(Object.entries(viewSettings.flips).filter(([,v])=>v));clips.forEach(c=>c.data.segments.forEach(s=>{if(s.src_rel===key)s.hflip=!!viewSettings.flips[key];}));}
+    restoreBox();drawCal();
+  };
+  $('#calFlipCam').onclick=async()=>{
+    const id=camId(curKey()), on=$('#calFlip').checked;
+    if(!curKey())return;
+    camItems.filter(c=>c.id===id).forEach(c=>{if(on)viewSettings.flips[c.path]=true;else delete viewSettings.flips[c.path];});
+    await api('/api/view_settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(viewSettings)});
+    if(plan){plan.video_flips=Object.fromEntries(Object.entries(viewSettings.flips).filter(([,v])=>v));clips.forEach(c=>c.data.segments.forEach(s=>{if(camItems.some(ci=>ci.id===id&&ci.path===s.src_rel))s.hflip=on;}));}
+    fillCams();syncFlip();restoreBox();drawCal();
+    $('#calStat').textContent=`✓ ${id} 전체 ${on?'좌우 반전 적용':'좌우 반전 해제'}`;
+  };
   $('#calGrab').onclick=grab;
   const pos=e=>{const r=cv.getBoundingClientRect();return{x:(e.clientX-r.left)*cv.width/r.width,y:(e.clientY-r.top)*cv.height/r.height};};
   cv.onmousedown=e=>{if(calImg){const p=pos(e);calDrag={x0:p.x,y0:p.y};}};
@@ -308,18 +366,19 @@ async function renderCal(){
   window.onmouseup=()=>{
     // save to the key of the frame ACTUALLY on screen, never a stale #calKey
     if(calDrag&&calBox&&calBox.w>6&&calBox.h>6&&calShownKey){
-      rois[calShownKey]=[round(calBox.x/cv.width,4),round(calBox.y/cv.height,4),round(calBox.w/cv.width,4),round(calBox.h/cv.height,4)];
+      const b=viewToStore(calBox,calShownKey);
+      rois[calShownKey]=[round(b.x/cv.width,4),round(b.y/cv.height,4),round(b.w/cv.width,4),round(b.h/cv.height,4)];
       calTbl();fillCams();$('#calKey').value=calShownKey;updStat();}
     calDrag=null;
   };
-  window.calTbl=()=>{const t=$('#calTbl');
-    const rows=Object.entries(rois).map(([k,v])=>`<tr${k===curKey()?' style="background:#232b34"':''}><td><b>${k}</b></td>${v.map(n=>`<td>${n}</td>`).join('')}<td><button class="btn sm" data-del="${k}">삭제</button></td></tr>`).join('');
-    t.innerHTML='<tr><th>파일</th><th>x</th><th>y</th><th>w</th><th>h</th><th></th></tr>'+(rows||'<tr><td colspan="6" class="mut">아직 없음 — 파일 선택 후 골망을 드래그하세요</td></tr>');
+  window.calTbl=()=>{const t=$('#calTbl'), visible=new Set(cams);
+    const rows=Object.entries(rois).filter(([k])=>visible.has(k)).map(([k,v])=>`<tr${k===curKey()?' style="background:#232b34"':''}><td><b>${k}</b></td>${v.map(n=>`<td>${n}</td>`).join('')}<td><button class="btn sm" data-del="${k}">삭제</button></td></tr>`).join('');
+    t.innerHTML='<tr><th>현재 날짜 파일</th><th>x</th><th>y</th><th>w</th><th>h</th><th></th></tr>'+(rows||'<tr><td colspan="6" class="mut">현재 날짜 폴더에 저장된 ROI가 없습니다 — 파일 선택 후 골망을 드래그하세요</td></tr>');
     t.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{const k=b.dataset.del;delete rois[k];if(k===curKey())calBox=null;calTbl();fillCams();drawCal();updStat();});};
   $('#calSave').onclick=async()=>{
     try{await api('/api/rois',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({rois})});$('#calStat').textContent='✓ net_rois.json 저장 완료';STATE.rois_exists=true;}
     catch(e){$('#calStat').textContent='저장 실패: '+e.message;}};
-  calTbl(); updStat(); grab();   // auto-load first cam frame + its saved ROI
+  syncFlip(); calTbl(); updStat(); grab();   // auto-load first cam frame + its saved ROI
 }
 
 /* ---------- ③ EDIT — NLE editor (webcut-style: library / viewer / inspector / sequence timeline) ---------- */
@@ -350,7 +409,7 @@ function locate(t){ // seq time -> {idx, seg, src, rel}
       for(let j=0;j<s.length;j++){
         const sd=segDur(s[j]);
         if(u<=acc+sd||j===s.length-1){
-          return{idx:i,seg:j,src:s[j].src_in+Math.min(Math.max(0,u-acc),sd),rel:s[j].src_rel,clip:c};
+          return{idx:i,seg:j,src:s[j].src_in+Math.min(Math.max(0,u-acc),sd),rel:s[j].src_rel,hflip:!!s[j].hflip,clip:c};
         }
         acc+=sd;
       }
@@ -373,10 +432,18 @@ const selClip=()=>clips.find(c=>c.id===selId);
 /* ---- shell ---- */
 async function renderEdit(){
   document.querySelector('main').classList.add('wide');
+  const ss=sessions();
+  const preferred=activeSession();
+  const selectedSession=preferred&&ss.some(s=>s.id===preferred)?preferred:(ss[0]?.id||'root');
+  window._edSession=selectedSession;
+  setupSession=selectedSession;
+  const sessionGames=gamesForSession(selectedSession);
   $('#edit').innerHTML=`<div class="nle">
     <div class="nle-bar">
+      <b style="font-size:13px">날짜</b>
+      <select id="edSession">${ss.map(s=>`<option value="${s.id}" ${s.id===selectedSession?'selected':''}>${s.label}</option>`).join('')}</select>
       <b style="font-size:13px">경기</b>
-      <select id="edGame">${STATE.games.map(g=>`<option value="${g.game}">경기 ${g.game}</option>`).join('')}</select>
+      <select id="edGame">${sessionGames.map(g=>`<option value="${gameKey(g)}">경기 ${gameNo(g)}</option>`).join('')}</select>
       <button class="btn" id="edLoad">불러오기</button>
       <button class="btn" id="edFresh" title="오디오·넷ROI 다시 분석">다시 감지</button>
       <span class="mut">|</span>
@@ -488,16 +555,37 @@ async function renderEdit(){
     $('#jobProg').style.width=p+'%';$('#jobDetail').textContent=`${p}% · ${stage||''}`;
   };
   const hideJob=()=>{$('#jobPanel').hidden=true;};
-  window.setJobPanel=setJob;window.hideJobPanel=hideJob;
+  let jobSeq=0, activeJobToken=0;
+  const beginJob=(kind,title,stage,percent)=>{
+    activeJobToken=++jobSeq;
+    setJob(title,stage,percent);
+    return activeJobToken;
+  };
+  const updateJob=(token,title,stage,percent)=>{
+    if(token!==activeJobToken)return false;
+    setJob(title,stage,percent);
+    return true;
+  };
+  const endJob=(token,delay=0)=>{
+    setTimeout(()=>{if(token===activeJobToken)hideJob();},delay);
+  };
+  window.beginJobPanel=beginJob;window.updateJobPanel=updateJob;window.endJobPanel=endJob;
+  window.setJobPanel=(title,stage,percent)=>beginJob('manual',title,stage,percent);
+  window.hideJobPanel=()=>{activeJobToken=++jobSeq;hideJob();};
   let loadReq=0, loadingPlan=false;
   const setLoadBusy=busy=>{
     loadingPlan=busy;
+    window._loadingPlan=busy;
     $('#edLoad').disabled=busy;
     $('#edFresh').disabled=busy;
     $('#edGame').disabled=busy;
+    $('#edSession').disabled=busy;
+    $('#edRender').disabled=busy;
   };
   const applyLoadedPlan=loaded=>{
     plan=loaded;
+    window._edSession=plan.session||window._edSession;
+    window._edGameKey=plan.game_key||String(plan.game);
     clips=plan.clips.map(d=>({id:nextId++,data:d,include:true}));
     hist=[];future=[];selId=clips.length?clips[0].id:null;playN=0;autoFit=true;
     $('#edStat').textContent=plan.cached?'캐시 로드됨':`${plan.clips.length}개 하이라이트 감지`;
@@ -510,32 +598,32 @@ async function renderEdit(){
     const req=++loadReq;
     setLoadBusy(true);
     $('#edStat').textContent=fresh?'다시 분석 중':'불러오는 중';
-    setJob('분석', fresh?'새 분석 시작':'캐시 확인 중', 0);
+    const jobToken=beginJob('analysis','분석', fresh?'새 분석 시작':'캐시 확인 중', 0);
     try{
       const r=await api('/api/plan_start',{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({game:parseInt($('#edGame').value,10),fresh})});
+        body:JSON.stringify({game:$('#edGame').value,fresh})});
       const poll=async()=>{
         try{
           const s=await api('/api/plan_status?job='+r.job);
           if(req!==loadReq)return;
           if(s.status==='running'){
-            setJob('분석',s.stage,s.percent);
+            updateJob(jobToken,'분석',s.stage,s.percent);
             $('#edStat').textContent=s.stage||'분석 중';
             setTimeout(poll,600);
           }else if(s.status==='done'){
-            setJob('분석','완료',100);
+            updateJob(jobToken,'분석','완료',100);
             applyLoadedPlan(s.plan);
             setLoadBusy(false);
-            setTimeout(hideJob,900);
+            endJob(jobToken,900);
           }else{
             $('#edStat').textContent='오류: '+(s.error||'unknown');
-            setJob('분석 실패',s.error||'unknown',100);
+            updateJob(jobToken,'분석 실패',s.error||'unknown',100);
             setLoadBusy(false);
           }
         }catch(e){
           if(req!==loadReq)return;
           $('#edStat').textContent='오류: '+e.message;
-          setJob('분석 실패',e.message,100);
+          updateJob(jobToken,'분석 실패',e.message,100);
           setLoadBusy(false);
         }
       };
@@ -548,6 +636,13 @@ async function renderEdit(){
       }
     }
   };
+  $('#edSession').onchange=e=>{
+    window._edSession=e.target.value;
+    const gs=gamesForSession(window._edSession);
+    $('#edGame').innerHTML=gs.map(g=>`<option value="${gameKey(g)}">경기 ${gameNo(g)}</option>`).join('');
+    window._edGameKey=$('#edGame').value;
+  };
+  $('#edGame').onchange=e=>{window._edGameKey=e.target.value;};
   $('#edLoad').onclick=()=>load(false);
   $('#edFresh').onclick=()=>load(true);
   let dirTarget=null, dirCur='';
@@ -589,7 +684,8 @@ async function renderEdit(){
     const included=seqClips().length;
     if(!included){$('#edRstat').textContent='포함된 클립이 없습니다';return;}
     $('#renderOut').value=$('#edOut').value||'data/output/gui';
-    $('#renderFile').value=window._edFile||`game${$('#edGame').value}_highlight.mp4`;
+    const sg=STATE.games.find(g=>gameKey(g)===$('#edGame').value);
+    $('#renderFile').value=window._edFile||`${(sg?.session_label||'game').replace(/[^A-Za-z0-9._-]+/g,'_')}_game${sg?gameNo(sg):$('#edGame').value}_highlight.mp4`;
     $('#renderBgm').value=$('#edBgm').value||'';
     $('#renderVol').value=$('#edVol').value||0.15;
     $('#renderFps').value=String(window._edFps||60);
@@ -634,13 +730,19 @@ async function renderEdit(){
       setJob('BGM 실패',err.message,100);
     }finally{e.target.value='';}
   };
-  if(plan){$('#edGame').value=plan.game;renderAll();seekSeq(playN);}
+  if(plan){
+    $('#edSession').value=plan.session||window._edSession;
+    $('#edSession').dispatchEvent(new Event('change'));
+    $('#edGame').value=plan.game_key||String(plan.game);
+    renderAll();seekSeq(playN);
+  }
 }
 
 /* ---- viewer / playback (webcut-style rAF clock, video drives time) ---- */
 const vid=()=>$('#nVid');
-function setSrc(rel,t,thenPlay){
+function setSrc(rel,t,thenPlay,hflip=false){
   const v=vid();switching=true;
+  v.style.transform=(hflip||(plan&&plan.video_flips&&plan.video_flips[rel]))?'scaleX(-1)':'';
   const apply=()=>{v.currentTime=Math.max(0,t);switching=false;if(thenPlay)v.play();};
   if(v.dataset.rel!==rel){v.dataset.rel=rel;v.src='/media/'+encodeURIComponent(rel);v.onloadedmetadata=apply;}
   else apply();
@@ -648,12 +750,12 @@ function setSrc(rel,t,thenPlay){
 function seekSeq(t){
   stopPlay();playN=clamp(t,0,seqDur());
   const m=locate(playN);if(!m){updatePh();return;}
-  curIdx=m.idx;curSeg=m.seg;setSrc(m.rel,m.src,false);updatePh();
+  curIdx=m.idx;curSeg=m.seg;setSrc(m.rel,m.src,false,m.hflip);updatePh();
 }
 function enter(idx,seg,thenPlay){
   const sc=seqClips();curIdx=idx;curSeg=seg;
   const g=sc[idx].data.segments[seg];
-  setSrc(g.src_rel,g.src_in,thenPlay);
+  setSrc(g.src_rel,g.src_in,thenPlay,!!g.hflip);
 }
 function playTick(ts){
   if(!playing)return;
@@ -682,7 +784,7 @@ function startPlay(){
   if(playN>=seqDur()-0.05)seekSeq(0);
   const m=locate(playN);curIdx=m.idx;curSeg=m.seg;
   playing=true;lastTs=performance.now();$('#tpPlay').textContent='⏸';
-  setSrc(m.rel,m.src,true);rafId=requestAnimationFrame(playTick);
+  setSrc(m.rel,m.src,true,m.hflip);rafId=requestAnimationFrame(playTick);
 }
 function stopPlay(){playing=false;if(rafId)cancelAnimationFrame(rafId);rafId=null;const v=vid();if(v)v.pause();const b=$('#tpPlay');if(b)b.textContent='▶';}
 function updatePh(){
@@ -724,6 +826,14 @@ function renderTimeline(){
       <div class="trim l"></div><div class="trim r"></div>
       <button class="ndel" title="제외 (⌫)">✕</button>`;
     lane.appendChild(el);
+    if(trimming&&c._waveHold){
+      const cnv=el.querySelector('.nwave');
+      cnv.style.display='none';
+      el.style.backgroundImage=`url(${c._waveHold.url})`;
+      el.style.backgroundRepeat='no-repeat';
+      el.style.backgroundSize=`${c._waveHold.w}px ${c._waveHold.h}px`;
+      el.style.backgroundPosition=`${c._waveHold.x||0}px 0`;
+    }
     bindClip(el,c);
     ensureWave(c,el);
     x+=d*PXPS;
@@ -747,9 +857,14 @@ function bindClip(el,c){
     handle.addEventListener('mousedown',ev=>{
       ev.preventDefault();ev.stopPropagation();selId=c.id;
       pushHist();trimming=true;
+      const hold=el.querySelector('.nwave');
+      const mode=handle.classList.contains('l')?'left':(handle.classList.contains('r')?'right':'cut');
+      if(hold&&hold.width&&hold.height)c._waveHold={url:hold.toDataURL(),w:hold.width,h:hold.height,x:0,mode};
       const x0=ev.clientX,o=JSON.parse(JSON.stringify(segs));
-      const mv=e=>{apply((e.clientX-x0)/PXPS,o);renderTimeline();renderInsp();};
-      const up=()=>{trimming=false;window.removeEventListener('mousemove',mv);window.removeEventListener('mouseup',up);renderAll();};
+      const mv=e=>{const dt=(e.clientX-x0)/PXPS;
+        if(c._waveHold)c._waveHold.x=mode==='left'?-dt*PXPS:0;
+        apply(dt,o);renderTimeline();renderInsp();};
+      const up=()=>{trimming=false;delete c._waveHold;window.removeEventListener('mousemove',mv);window.removeEventListener('mouseup',up);renderAll();};
       window.addEventListener('mousemove',mv);window.addEventListener('mouseup',up);
     });
   };
@@ -790,8 +905,8 @@ async function ensureWave(c,el){
       x+=segW;
     });
   };
-  if(c._wkey===key&&c._wave){draw();return;}
-  if(trimming){draw();return;}   // don't refetch mid-drag; redraw stale cache
+  if(c._wkey===key&&c._wave){if(!trimming)draw();return;}
+  if(trimming)return;   // keep the frozen waveform snapshot until mouseup
   try{
     const parts=[];
     for(const sg of segs){
@@ -838,7 +953,7 @@ function renderLib(){
    so segments can be rebuilt for any cam order without losing the moment. */
 function camMap(){
   const m={};
-  clips.forEach(c=>c.data.segments.forEach(g=>{m[g.cam]={src:g.src,src_rel:g.src_rel};}));
+  clips.forEach(c=>c.data.segments.forEach(g=>{m[g.cam]={src:g.src,src_rel:g.src_rel,hflip:!!g.hflip};}));
   return m;
 }
 function currentOrder(c){return c.data.segments.map(g=>g.cam);}
@@ -850,7 +965,7 @@ function setAngles(c,order){
   // keep the existing switch point; when coming FROM single-cam, default to T+2s
   let tc=segs.length>1?segs[0].src_out-off(segs[0].cam):clamp(c.data.T+2,t0+0.5,te-0.5);
   tc=clamp(tc,t0+0.5,te-0.5);
-  const mk=(cam,a,b)=>({cam,src:m[cam].src,src_rel:m[cam].src_rel,
+  const mk=(cam,a,b)=>({cam,src:m[cam].src,src_rel:m[cam].src_rel,hflip:!!m[cam].hflip,
                         src_in:Math.max(0,a+off(cam)),src_out:b+off(cam)});
   c.data.segments=order.length===1?[mk(order[0],t0,te)]:[mk(order[0],t0,tc),mk(order[1],tc,te)];
   c._wave=null;c._wkey=null;   // waveform must refetch for the new cams
@@ -1023,6 +1138,7 @@ function bindShell(){
 
 /* ---- render job ---- */
 async function startRender(){
+  if(window._loadingPlan){$('#edRstat').textContent='분석이 끝난 뒤 렌더할 수 있습니다';return;}
   window._edOut=$('#edOut').value;window._edBgm=$('#edBgm').value;window._edVol=$('#edVol').value;
   const tail=Math.max(0,parseFloat(window._edTail)||0);
   const renderClips=seqClips().map(c=>JSON.parse(JSON.stringify(c.data)));
@@ -1031,8 +1147,10 @@ async function startRender(){
   }
   const out={...plan,fps:parseInt(window._edFps,10)||60,crossfade_sec:Math.max(0,parseFloat($('#edXf').value)||0),clips:renderClips,render_tail_sec:tail};
   if(!out.clips.length){$('#edRstat').textContent='포함된 클립이 없습니다';return;}
+  const renderBtn=$('#edRender');
+  if(renderBtn)renderBtn.disabled=true;
   $('#edProgWrap').hidden=false;$('#edProg').style.width='0%';$('#edRstat').textContent='렌더 시작…';
-  if(window.setJobPanel)window.setJobPanel('렌더','렌더 준비 중',0);
+  const jobToken=window.beginJobPanel?window.beginJobPanel('render','렌더','렌더 준비 중',0):null;
   try{
     const r=await api('/api/render',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({plan:out,out:window._edOut,filename:window._edFile,bgm:window._edBgm||null,bgm_volume:parseFloat(window._edVol)})});
@@ -1043,18 +1161,20 @@ async function startRender(){
           const pct=s.percent??Math.round(i/Math.max(1,n)*100);
           $('#edProg').style.width=pct+'%';
           $('#edRstat').textContent=s.stage||`렌더 ${i}/${n}`;
-          if(window.setJobPanel)window.setJobPanel('렌더',s.stage||`렌더 ${i}/${n}`,pct);
+          if(window.updateJobPanel)window.updateJobPanel(jobToken,'렌더',s.stage||`렌더 ${i}/${n}`,pct);
           setTimeout(poll,1000);}
         else if(s.status==='done'){$('#edProg').style.width='100%';
           $('#edRstat').textContent=`✓ 최종 파일 → ${s.output||window._edOut}`;
-          if(window.setJobPanel)window.setJobPanel('렌더','완료',100);
-          if(window.hideJobPanel)setTimeout(window.hideJobPanel,1200);}
+          if(window.updateJobPanel)window.updateJobPanel(jobToken,'렌더','완료',100);
+          if(window.endJobPanel)window.endJobPanel(jobToken,1200);
+          if(renderBtn)renderBtn.disabled=false;}
         else {$('#edRstat').textContent='오류: '+(s.error||'unknown');
-          if(window.setJobPanel)window.setJobPanel('렌더 실패',s.error||'unknown',100);}
-      }catch(e){$('#edRstat').textContent='상태 조회 실패: '+e.message;}
+          if(window.updateJobPanel)window.updateJobPanel(jobToken,'렌더 실패',s.error||'unknown',100);
+          if(renderBtn)renderBtn.disabled=false;}
+      }catch(e){$('#edRstat').textContent='상태 조회 실패: '+e.message;if(renderBtn)renderBtn.disabled=false;}
     };
     poll();
-  }catch(e){$('#edRstat').textContent='오류: '+e.message;}
+  }catch(e){$('#edRstat').textContent='오류: '+e.message;if(renderBtn)renderBtn.disabled=false;}
 }
 loadState();
 </script>

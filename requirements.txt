@@ -2,5 +2,6 @@ numpy>=1.26
 scipy>=1.11
 librosa>=0.10
 soundfile>=0.12
+Pillow>=10.0        # GOAL 라벨 오버레이(src/video_editor) 렌더
 PyYAML>=6.0
 pytest>=8.0

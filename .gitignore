@@ -16,3 +16,6 @@ __pycache__/
 
 # Large ProRes graphic renders (regenerate via tools/make_graphic_*_anim.py)
 docs/broll/graphics/*.mov
+
+# Graphic-render scratch frames
+build/

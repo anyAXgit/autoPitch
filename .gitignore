@@ -13,3 +13,6 @@ __pycache__/
 
 # YOLO weights (auto-downloaded by ultralytics)
 *.pt
+
+# Large ProRes graphic renders (regenerate via tools/make_graphic_*_anim.py)
+docs/broll/graphics/*.mov

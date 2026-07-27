@@ -3,6 +3,8 @@ data/temp_video/*
 data/temp_audio/*
 data/output/*
 data/_stage/
+data/_stage*/
+data/temp_frames/*
 data/_gui/
 !data/**/.gitkeep
 __pycache__/
@@ -19,3 +21,5 @@ docs/broll/graphics/*.mov
 
 # Graphic-render scratch frames
 build/
+docs/broll/clips/*.mp4
+court_quads.json

@@ -595,6 +595,41 @@ def start_plan_job(game, fresh=False):
     return job_id
 
 
+
+# ── 경기 분석(팀 히트맵 · 점유) ─────────────────────────────────────────────
+ANALYSIS_JOBS = {}   # job_id -> {status, percent, stage, result?}
+
+
+def _analysis_job(job_id, source, start, dur, quad):
+    job = ANALYSIS_JOBS[job_id]
+    try:
+        from src.player_analysis import analyse, save
+        def on(msg, frac):
+            job.update(percent=int(frac * 100), stage=msg)
+        r = analyse(source, start=float(start), dur=float(dur), fps=5,
+                    progress=on, court_quad=quad)
+        r["source_path"] = source
+        out = os.path.join("build", "tmp", "analysis",
+                           f"{os.path.splitext(os.path.basename(source))[0]}.json")
+        save(r, out)
+        job.update(status="done", percent=100, stage="분석 완료",
+                   result={k: r[k] for k in
+                           ("teams", "heatmap", "detections", "frames",
+                            "width", "height", "dur", "calibrated")},
+                   path=out)
+    except Exception as e:  # noqa
+        job.update(status="error", stage="분석 실패",
+                   error=f"{type(e).__name__}: {e}")
+
+
+def start_analysis_job(source, start=0.0, dur=90.0, quad=None):
+    job_id = uuid.uuid4().hex[:12]
+    ANALYSIS_JOBS[job_id] = {"status": "running", "percent": 0, "stage": "준비 중"}
+    threading.Thread(target=_analysis_job,
+                     args=(job_id, source, start, dur, quad), daemon=True).start()
+    return job_id
+
+
 def _safe_output_name(name):
     name = re.sub(r"[^A-Za-z0-9._ -]+", "_", (name or "").strip()).strip(" .")
     if not name:
@@ -747,6 +782,12 @@ class Handler(BaseHTTPRequestHandler):
                     urllib.parse.unquote(q["path"][0]),
                     float(q.get("t0", ["0"])[0]), float(q.get("t1", ["60"])[0]),
                     int(q.get("n", ["400"])[0]))})
+            if u.path == "/api/analysis_status":
+                job = ANALYSIS_JOBS.get(q.get("job", [""])[0])
+                return self._json(job or {"status": "unknown"})
+            if u.path == "/api/court_quad":
+                p = os.path.join(STATE["root"], "court_quads.json")
+                return self._json(json.load(open(p)) if os.path.exists(p) else {})
             if u.path == "/api/render_status":
                 job = JOBS.get(q.get("job", [""])[0])
                 return self._json(job if job else {"status": "error", "error": "unknown job"})
@@ -821,6 +862,16 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/api/plan_start":
                 job = start_plan_job(body["game"], bool(body.get("fresh")))
                 return self._json({"job": job})
+            if u.path == "/api/analysis_start":
+                return self._json({"job": start_analysis_job(
+                    body.get("source"), body.get("start", 0),
+                    body.get("dur", 90), body.get("quad"))})
+            if u.path == "/api/court_quad":
+                p = os.path.join(STATE["root"], "court_quads.json")
+                d = json.load(open(p)) if os.path.exists(p) else {}
+                d[body["cam"]] = body["quad"]
+                json.dump(d, open(p, "w"), indent=2)
+                return self._json({"ok": True})
             if u.path == "/api/render":
                 job = start_render(body["plan"], body.get("out", "data/output/gui"),
                                    body.get("bgm"), body.get("bgm_volume", 0.15),

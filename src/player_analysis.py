@@ -1,4 +1,23 @@
-"""Team-level movement analysis from the fixed cameras.
+"""EXPERIMENTAL -- team-level movement analysis. Not wired into the pipeline
+or the editor: measured on real footage it is not trustworthy enough to ship.
+
+Why it is shelved (all measured, 7/16 footage):
+  * Detection works -- 11 players found per frame, 99-117px tall.
+  * Per-player tracking does NOT -- 11 players fragmented into 109 track IDs
+    over 90s, so distance-run and per-player heatmaps are out.
+  * Detection COUNTS are camera-visibility, not team activity: the two corner
+    cameras each over-count whichever team is nearer, which flipped A/B totals
+    between cam1 (4786/3527) and cam2 (3805/4265) for the same window.
+  * Cameras cannot be fused without a court homography, and three automatic
+    calibration attempts failed (line detection, near-goal PnP, far-goal PnP --
+    the last verified wrong by back-projection).
+  * Team split by shirt colour is exposure-dependent: cam2 renders the dark
+    team at luminance 124 vs cam1's 57, narrowing the gap to the white team.
+
+A single camera overlooking the whole court removes most of these at once.
+Kept for that day; see docs for the full measurement log.
+
+Team-level movement analysis from the fixed cameras.
 
 Per-PLAYER tracking is not reliable at this camera geometry -- measured on real
 footage, 11 players fragmented into 109 track IDs over 90s (a track breaks every

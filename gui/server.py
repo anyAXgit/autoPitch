@@ -625,6 +625,8 @@ def _analysis_job(job_id, sources, start, dur, fps, quads):
                    stage=("두 카메라 융합 완료" if (fused and fused.get("merged"))
                           else "분석 완료"),
                    result={"teams": primary["teams"], "heatmap": primary["heatmap"],
+                           "colours": {k: results[0]["teams"][k]["colour"]
+                                       for k in ("A", "B")},
                            "detections": primary["detections"],
                            "frames": primary["frames"],
                            "dur": primary["dur"],

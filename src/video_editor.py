@@ -185,12 +185,17 @@ def _burn_goal(video_path, png_path, at, out_path, vargs, hold=2.0, fade=0.3):
     with a quick fade in/out. Position is seconds-into-clip, so it's correct
     regardless of which segment the goal falls in."""
     end = at + hold
+    # `-loop 1` is REQUIRED: a bare image input decodes to a single frame at
+    # t=0, so the alpha fades (which start at `at` > 0) leave that one frame
+    # fully transparent and overlay repeats it -- the badge never appears.
+    # Looping gives the badge a real timeline; `shortest=1` keeps the infinite
+    # image stream from extending the output past the clip.
     _ffmpeg([
-        "-i", video_path, "-i", png_path,
+        "-i", video_path, "-loop", "1", "-i", png_path,
         "-filter_complex",
         f"[1:v]format=rgba,fade=t=in:st={at}:d={fade}:alpha=1,"
         f"fade=t=out:st={end - fade}:d={fade}:alpha=1[b];"
-        f"[0:v][b]overlay=(W-w)/2:H*0.08:enable='between(t,{at},{end})'[v]",
+        f"[0:v][b]overlay=(W-w)/2:H*0.08:enable='between(t,{at},{end})':shortest=1[v]",
         "-map", "[v]", "-map", "0:a?",
         *vargs, "-c:a", "aac", out_path,
     ])

@@ -600,33 +600,52 @@ def start_plan_job(game, fresh=False):
 ANALYSIS_JOBS = {}   # job_id -> {status, percent, stage, result?}
 
 
-def _analysis_job(job_id, source, start, dur, quad):
+def _analysis_job(job_id, sources, start, dur, fps, quads):
+    """Analyse one or more cameras of the same game, then fuse if possible."""
     job = ANALYSIS_JOBS[job_id]
     try:
-        from src.player_analysis import analyse, save
-        def on(msg, frac):
-            job.update(percent=int(frac * 100), stage=msg)
-        r = analyse(source, start=float(start), dur=float(dur), fps=5,
-                    progress=on, court_quad=quad)
-        r["source_path"] = source
-        out = os.path.join("build", "tmp", "analysis",
-                           f"{os.path.splitext(os.path.basename(source))[0]}.json")
-        save(r, out)
-        job.update(status="done", percent=100, stage="분석 완료",
-                   result={k: r[k] for k in
-                           ("teams", "heatmap", "detections", "frames",
-                            "width", "height", "dur", "calibrated")},
+        from src.player_analysis import analyse, merge, save
+        results = []
+        for ci, src in enumerate(sources):
+            def on(msg, frac, ci=ci):
+                base = ci / len(sources)
+                job.update(percent=int((base + frac / len(sources)) * 100),
+                           stage=f"[{ci+1}/{len(sources)}] {os.path.basename(src)} · {msg}")
+            r = analyse(src, start=float(start), dur=float(dur), fps=int(fps),
+                        progress=on, court_quad=(quads or {}).get(src),
+                        work_dir=os.path.join("build", "tmp", "analysis", f"c{ci}"))
+            r["source_path"] = src
+            results.append(r)
+        fused = merge(results) if len(results) > 1 else None
+        primary = fused if (fused and fused.get("merged")) else results[0]
+        out = os.path.join("build", "tmp", "analysis", "latest.json")
+        save({**primary, "source_path": results[0]["source_path"],
+              "start": float(start)}, out)
+        job.update(status="done", percent=100,
+                   stage=("두 카메라 융합 완료" if (fused and fused.get("merged"))
+                          else "분석 완료"),
+                   result={"teams": primary["teams"], "heatmap": primary["heatmap"],
+                           "detections": primary["detections"],
+                           "frames": primary["frames"],
+                           "dur": primary["dur"],
+                           "calibrated": bool(primary.get("calibrated")),
+                           "merged": bool(fused and fused.get("merged")),
+                           "cameras": len(results),
+                           "note": (fused or {}).get("reason")},
                    path=out)
     except Exception as e:  # noqa
         job.update(status="error", stage="분석 실패",
                    error=f"{type(e).__name__}: {e}")
 
 
-def start_analysis_job(source, start=0.0, dur=90.0, quad=None):
+def start_analysis_job(sources, start=0.0, dur=90.0, fps=5, quads=None):
+    if isinstance(sources, str):
+        sources = [sources]
     job_id = uuid.uuid4().hex[:12]
     ANALYSIS_JOBS[job_id] = {"status": "running", "percent": 0, "stage": "준비 중"}
     threading.Thread(target=_analysis_job,
-                     args=(job_id, source, start, dur, quad), daemon=True).start()
+                     args=(job_id, sources, start, dur, fps, quads),
+                     daemon=True).start()
     return job_id
 
 
@@ -863,9 +882,12 @@ class Handler(BaseHTTPRequestHandler):
                 job = start_plan_job(body["game"], bool(body.get("fresh")))
                 return self._json({"job": job})
             if u.path == "/api/analysis_start":
+                p = os.path.join(STATE["root"], "court_quads.json")
+                quads = json.load(open(p)) if os.path.exists(p) else {}
                 return self._json({"job": start_analysis_job(
-                    body.get("source"), body.get("start", 0),
-                    body.get("dur", 90), body.get("quad"))})
+                    body.get("sources") or body.get("source"),
+                    body.get("start", 0), body.get("dur", 90),
+                    body.get("fps", 5), quads)})
             if u.path == "/api/court_quad":
                 p = os.path.join(STATE["root"], "court_quads.json")
                 d = json.load(open(p)) if os.path.exists(p) else {}

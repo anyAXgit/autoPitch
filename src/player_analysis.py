@@ -181,6 +181,51 @@ def analyse(source, start=0.0, dur=120.0, fps=5, width=1280,
     }
 
 
+
+def merge(results, court_size=(20.0, 12.0)):
+    """Fuse per-camera analyses into one.
+
+    Only meaningful when every camera was calibrated: each view's heatmap lives
+    in its own image space, so pooling them without a court homography would add
+    apples to oranges. When they ARE calibrated the fusion is worth having --
+    the two corner cameras cover each other's blind side, so a player hidden
+    behind a cluster in one view is usually clear in the other.
+
+    Falls back to returning the inputs untouched (side-by-side, not merged).
+    """
+    if not results:
+        return None
+    if not all(r.get("calibrated") and r.get("court_pts") for r in results):
+        return {"merged": False, "reason": "코트 미보정 카메라가 있어 융합하지 않음",
+                "per_camera": results}
+    CW, CH = court_size
+    grid_h, grid_w = results[0]["heatmap"]["grid"]
+    out = {"A": np.zeros((grid_h, grid_w)), "B": np.zeros((grid_h, grid_w))}
+    teams = {k: {"n": 0} for k in ("A", "B")}
+    half = {"A": [], "B": []}
+    for r in results:
+        for k in ("A", "B"):
+            pts = np.asarray(r["court_pts"][k], dtype=float)
+            if len(pts) == 0:
+                continue
+            h, _, _ = np.histogram2d(pts[:, 1], pts[:, 0], bins=[grid_h, grid_w],
+                                     range=[[0, CH], [0, CW]])
+            out[k] += h
+            teams[k]["n"] += len(pts)
+            half[k].append(float(np.mean(pts[:, 0] < CW / 2)))
+    for k in ("A", "B"):
+        teams[k]["own_half_share"] = float(np.mean(half[k])) if half[k] else None
+        teams[k]["spread_px"] = float(np.mean([r["teams"][k]["spread_px"] for r in results]))
+    return {"merged": True, "cameras": len(results), "calibrated": True,
+            "court_size": [CW, CH], "teams": teams,
+            "detections": sum(r["detections"] for r in results),
+            "frames": sum(r["frames"] for r in results),
+            "dur": max(r["dur"] for r in results),
+            "heatmap": {"A": out["A"].tolist(), "B": out["B"].tolist(),
+                        "all": (out["A"] + out["B"]).tolist(),
+                        "grid": [grid_h, grid_w]}}
+
+
 def save(result, path):
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:

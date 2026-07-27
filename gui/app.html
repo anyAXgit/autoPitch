@@ -185,34 +185,78 @@ let anaJob=null, anaData=null, anaQuad=[], anaCam=null;
 
 async function renderAna(){
   const st=await api('/api/state');
-  const games=st.games||[];
+  const games=(st.games||[]);
+  const quads=await api('/api/court_quad').catch(()=>({}));
   $('#ana').innerHTML=`
    <div class="pane">
     <h2>경기 분석 · 팀 활동 영역</h2>
     <p class="hint">선수 개인 추적은 이 각도에선 끊깁니다(11명 → 109 ID 측정).
        ID가 필요 없는 <b>팀 단위 점유</b>만 분석합니다.</p>
     <div class="row">
-      <label>영상 <select id="anaSrc">${games.flatMap(g=>gameCams(g).map(c=>
-        `<option value="${c.path}">${gameNo(g)}경기 · ${c.path.split('/').pop()}</option>`)).join('')}</select></label>
-      <label>시작(초) <input id="anaStart" type="number" value="600" style="width:90px"></label>
-      <label>길이(초) <input id="anaDur" type="number" value="90" style="width:80px"></label>
+      <label>경기 <select id="anaGame">${games.map((g,i)=>
+        `<option value="${i}">${g.session_label||''} ${gameNo(g)}경기 · ${mmss(g.overlap||0)}</option>`).join('')}</select></label>
+      <label>구간 <select id="anaSeg">
+        <option value="full">전체 경기</option>
+        <option value="first">전반</option>
+        <option value="second">후반</option>
+        <option value="sample" selected>표본 3분(빠름)</option>
+      </select></label>
+      <label>카메라 <select id="anaCam">
+        <option value="0" selected>카메라 1</option>
+        <option value="1">카메라 2</option>
+        <option value="all">양쪽(코트 보정 필요)</option>
+      </select></label>
       <button id="anaRun" class="primary">분석 실행</button>
-      <span id="anaStat" class="hint"></span>
     </div>
-    <div class="row" style="margin-top:6px">
-      <button id="anaCal">코트 4점 보정</button>
-      <span class="hint">보정하면 자기 진영 점유율(%)까지 나옵니다. 미보정이면 카메라 시점 기준 히트맵만.</span>
+    <p class="hint" id="anaPlan"></p>
+    <div class="row"><span id="anaStat" class="hint"></span></div>
+    <div class="row" style="margin-top:4px">
+      <span id="anaQuadState" class="hint"></span>
+      <details style="margin-left:auto"><summary class="hint">코트 보정(선택)</summary>
+        <p class="hint" style="max-width:520px">코트 네 모퉁이를 찍으면 점유율(%)과 카메라 융합이 켜집니다.
+        이 앵글에선 모퉁이가 화면 밖이거나 흐려 찍기 어려울 수 있고, 잘못 찍으면 틀린 점유율이 나옵니다.
+        자신 없으면 <b>건너뛰세요</b> — 히트맵은 보정 없이도 정확합니다.</p>
+        <button id="anaCal">코트 4점 찍기</button>
+      </details>
     </div>
     <div id="anaOut" style="margin-top:12px"></div>
    </div>`;
+  window._anaGames=games; window._anaQuads=quads;
+  const upd=()=>{
+    const g=games[+$('#anaGame').value]||{}; const cams=gameCams(g);
+    const ov=g.overlap||0, seg=$('#anaSeg').value;
+    const plan={full:[0,ov],first:[0,ov/2],second:[ov/2,ov/2],sample:[Math.max(0,ov/2-90),180]}[seg];
+    const fps=seg==='sample'?5:1;                 // 전체를 훑을 땐 저속 샘플링
+    window._anaRange={start:Math.round(plan[0]),dur:Math.round(plan[1]),fps};
+    const n=Math.round(plan[1]*fps);
+    $('#anaPlan').innerHTML=`→ ${mmss(plan[0])}부터 ${mmss(plan[1])} 동안 · 초당 ${fps}장 ·
+       약 ${n.toLocaleString()}프레임 · 예상 ${Math.max(1,Math.round(n*0.18/60))}분`;
+    const sel=$('#anaCam').value;
+    const use=sel==='all'?cams:[cams[+sel]].filter(Boolean);
+    const miss=use.filter(c=>!quads[c.path]).length;
+    $('#anaQuadState').innerHTML=miss===0
+      ? `<b style="color:#37d67a">코트 보정됨</b> — 점유율·융합 사용`
+      : `카메라 시점 히트맵 <span style="color:#8b95a3">(코트 미보정 — 기본 모드)</span>`;
+    if(sel==='all'&&miss>0){
+      $('#anaQuadState').innerHTML+=' <b style="color:#f0b429">· 융합은 보정 후 가능, 카메라 1만 분석됩니다</b>';
+    }
+  };
+  ['anaGame','anaSeg','anaCam'].forEach(id=>$('#'+id).onchange=upd);
+  upd();
   $('#anaRun').onclick=startAna;
-  $('#anaCal').onclick=()=>calibrateCourt($('#anaSrc').value);
+  $('#anaCal').onclick=()=>{
+    const g=games[+$('#anaGame').value]; const cams=gameCams(g);
+    const sel=$('#anaCam').value;
+    calibrateCourt((sel==='all'?cams[0]:cams[+sel]).path);
+  };
 }
 
 async function startAna(){
-  const src=$('#anaSrc').value, start=+$('#anaStart').value, dur=+$('#anaDur').value;
-  const quads=await api('/api/court_quad');
-  const r=await post('/api/analysis_start',{source:src,start,dur,quad:quads[src]||null});
+  const g=window._anaGames[+$('#anaGame').value]; const cams=gameCams(g);
+  const sel=$('#anaCam').value;
+  const use=(sel==='all'?cams:[cams[+sel]].filter(Boolean)).map(c=>c.path);
+  const {start,dur,fps}=window._anaRange;
+  const r=await post('/api/analysis_start',{sources:use,start,dur,fps});
   anaJob=r.job; pollAna();
 }
 
@@ -247,7 +291,10 @@ function drawAna(d){
       </table>
     </div>
     <p class="hint">${d.frames}프레임 · 검출 ${d.detections.toLocaleString()}개 ·
-      ${d.calibrated?'코트 보정됨':'<b>코트 미보정</b> — 점유율은 보정 후 표시'}</p>`;
+      ${d.merged?`<b style="color:#37d67a">카메라 ${d.cameras}대 융합</b>`
+                 :(d.cameras>1?'카메라별 개별 분석':'단일 카메라')} ·
+      ${d.calibrated?'코트 보정됨':'<b>코트 미보정</b> — 점유율은 보정 후 표시'}
+      ${d.note?`<br><span style="color:#f0b429">${d.note}</span>`:''}</p>`;
   $('#anaCv').appendChild(cv);
 }
 

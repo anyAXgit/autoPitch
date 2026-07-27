@@ -7,7 +7,7 @@ from src.peak_detector import detect_peaks
 from src.segment_planner import build_plan
 from src.video_editor import render_plan
 from src.frame_extractor import extract_goal_frames
-from src.goal_confirmer import confirm_goals, make_vlm_classifier
+from src.goal_confirmer import label_goals, make_vlm_classifier
 
 TEMP_VIDEO = "data/temp_video"
 TEMP_AUDIO = "data/temp_audio"
@@ -48,6 +48,12 @@ def run(
     peaks = detect_peaks(pre["audio"][camA], cfg)
     print(f"      {len(peaks)} candidate(s): {[round(p,1) for p in peaks]}")
 
+    # Vision LABELS the candidates; it never removes them and never draws on the
+    # video. The output is a highlight reel, so loud non-goals (saves, near
+    # misses) are wanted content -- and an audio candidate is not guaranteed to
+    # be a goal, so a burned-in caption would publish the model's mistakes. The
+    # verdict is recorded in plan.json as data (review / sorting / training).
+    goal_labels = {}
     if cfg.vision.enabled and peaks:
         frames_by_T = {}
         for T in peaks:
@@ -56,12 +62,13 @@ def run(
                 os.path.join(temp_frames, f"T{T:.1f}"),
             )
         classifier = vision_classifier or make_vlm_classifier(cfg)
-        kept = confirm_goals(peaks, frames_by_T, cfg, classifier)
-        print(f"      vision: kept {len(kept)}/{len(peaks)} goals")
-        peaks = kept
+        goal_labels = label_goals(peaks, frames_by_T, cfg, classifier)
+        n_goal = sum(1 for v in goal_labels.values() if v.get("is_goal"))
+        print(f"      vision: labelled {n_goal}/{len(peaks)} as goals "
+              f"(data only -- all {len(peaks)} clips kept, nothing drawn)")
 
     print("[4/5] planning")
-    plan = build_plan(pre, offsets, peaks, camA, cfg)
+    plan = build_plan(pre, offsets, peaks, camA, cfg, goal_labels=goal_labels)
 
     print("[5/5] rendering")
     clips = render_plan(plan, output_dir, cfg.bgm_path, cfg.bgm_volume)

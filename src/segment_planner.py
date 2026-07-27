@@ -272,7 +272,21 @@ def pick_reaction_angle(pre, offsets, camA, T, end, cfg, rms_cache):
     return _loudest_other(pre, offsets, camA, T, end, cfg, rms_cache) or camA
 
 
-def build_plan(pre, offsets, peaks, camA, cfg, progress=None):
+def _label_for(goal_labels, peak):
+    """Vision verdict for a peak, tolerating float drift. DATA ONLY -- this is
+    never the render flag; burning a badge stays the editor's manual choice."""
+    if not goal_labels:
+        return None
+    p = float(peak)
+    if p in goal_labels:
+        return goal_labels[p]
+    for k, v in goal_labels.items():
+        if abs(k - p) < 0.01:
+            return v
+    return None
+
+
+def build_plan(pre, offsets, peaks, camA, cfg, progress=None, goal_labels=None):
     def report(label, frac):
         if progress:
             progress(label, max(0.0, min(1.0, float(frac))))
@@ -363,9 +377,18 @@ def build_plan(pre, offsets, peaks, camA, cfg, progress=None):
         else:
             segments = [seg(camA, start, end)]
         # T = goal-onset anchor (clip start / label); peak = loudness peak; goal_cam = net-ROI goal side
+        verdict = _label_for(goal_labels, peak)
         clips.append({"T": float(T), "peak": float(peak),
                       "goal_cam": goal_cam, "roi_only": bool(roi_only),
                       "scan_conf": (float(scan_conf) if scan_conf is not None else None),
+                      # goal_label = burn a GOAL badge. Manual, editor-only: an
+                      # audio candidate may not be a goal, so we never caption
+                      # the video from a model verdict.
+                      "goal_label": False,
+                      # vision_* = the model's verdict, recorded as data for
+                      # review / sorting / future training. Never drawn.
+                      "vision_goal": (verdict["is_goal"] if verdict else None),
+                      "vision_conf": (verdict["confidence"] if verdict else None),
                       "segments": segments})
     report(f"하이라이트 {len(clips)}개 구성 완료", 1.0)
     return {"fps": cfg.fps, "crossfade_sec": cfg.crossfade_sec,

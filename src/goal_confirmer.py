@@ -31,6 +31,34 @@ _PROMPT = (
 )
 
 
+def label_goals(peaks, frames_by_T, cfg, classifier=None):
+    """Return {peak_time: {"is_goal": bool, "confidence": float}} for every peak.
+
+    Nothing is dropped and nothing is drawn. The product is a HIGHLIGHT reel, so
+    loud non-goals (saves, near misses) are wanted content; and an audio
+    candidate is not guaranteed to be a goal, so burning a "GOAL" caption on the
+    model's guess would publish its mistakes. The verdict is therefore recorded
+    as DATA only -- it lands in plan.json for review, sorting and future
+    training. Whether a clip actually gets a badge stays a manual editor choice
+    (`goal_label`), which this never touches.
+
+    Returns an empty dict when vision is disabled or no classifier is supplied.
+    """
+    if not cfg.vision.enabled or classifier is None:
+        return {}
+    labels = {}
+    for T in peaks:
+        frames = frames_by_T.get(T) or []
+        if not frames:
+            labels[float(T)] = {"is_goal": False, "confidence": 0.0}
+            continue
+        v = classifier(frames) or {}
+        conf = float(v.get("confidence", 0.0))
+        ok = bool(v.get("is_goal")) and conf >= cfg.vision.min_confidence
+        labels[float(T)] = {"is_goal": ok, "confidence": conf}
+    return labels
+
+
 def confirm_goals(peaks, frames_by_T, cfg, classifier=None):
     """Return the subset of `peaks` confirmed as goals.
 

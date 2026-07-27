@@ -11,7 +11,7 @@ def _stub_drop_early(frames):
     return {"is_goal": t >= 30, "confidence": 0.9}
 
 
-def test_e2e_vision_stub_prunes(tmp_path, monkeypatch):
+def test_e2e_vision_stub_labels(tmp_path, monkeypatch):
     raw = tmp_path / "raw"
     make_dummy_set(str(raw), [
         {"name": "camA", "color": "red", "offset": 0.0,
@@ -28,10 +28,16 @@ def test_e2e_vision_stub_prunes(tmp_path, monkeypatch):
     }))
     result = run(raw_dir=str(raw), config_path=str(tmp_path / "config.yaml"),
                  vision_classifier=_stub_drop_early)
-    # audio proposed 2 goals (~20, ~40); vision stub pruned the early one
-    assert len(result["peaks"]) == 1
-    assert result["peaks"][0] >= 30
-    assert len(result["clips"]) == 1
+    # Audio proposed 2 candidates (~20, ~40). Vision LABELS -- it must not drop
+    # either (the reel is a highlight, so the loud non-goal stays in) and must
+    # not set the render flag. Only the late one gets vision_goal=True.
+    assert len(result["peaks"]) == 2
+    assert len(result["clips"]) == 2
+    labelled = [c for c in result["plan"]["clips"] if c.get("vision_goal")]
+    assert len(labelled) == 1
+    assert labelled[0]["peak"] >= 30
+    # the verdict is data only -- no clip is marked for a burned-in badge
+    assert all(c["goal_label"] is False for c in result["plan"]["clips"])
 
 
 def test_e2e_multicam(tmp_path, monkeypatch):

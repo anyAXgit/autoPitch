@@ -20,7 +20,8 @@ output_width: 1920
 output_height: 1080
 # bgm_path: data/bgm.mp3   # optional background music mixed under highlight_all.mp4
 bgm_volume: 0.15           # bgm level (crowd audio stays at full volume)
-vision:                 # goal-confirmation via sparse frames (V2/V3); off by default
+vision:                 # goal LABELLING via sparse frames -- marks which clips are goals
+                        # (never removes clips; the reel keeps saves/near-misses). off by default
   enabled: false
   pre_sec: 3            # covers the shot (~1-2s before the cheer peak)
   post_sec: 5          # covers ball-in + walk-back to center (restart = goal cue)

@@ -248,6 +248,57 @@ def reveal_dir(rel, allow_outside=False):
     return full
 
 
+# Settings surfaced in the UI. Deliberately a short list: config.yaml has ~40
+# knobs, and showing all of them would be worse than showing none. These are the
+# ones that visibly change the result, described in the terms a user thinks in.
+SETTINGS = [
+    {"key": "peak.threshold_k", "label": "탐지 민감도", "type": "range",
+     "min": 1.5, "max": 5.0, "step": 0.1, "invert": True,
+     "help": "낮출수록 더 많은 장면을 잡습니다. 놓치는 게 많으면 낮추고, 엉뚱한 게 많으면 올리세요."},
+    {"key": "peak.min_gap_sec", "label": "장면 사이 최소 간격", "type": "number",
+     "min": 3, "max": 60, "step": 1, "unit": "초",
+     "help": "이 간격 안에 여러 번 시끄러우면 한 장면으로 묶습니다."},
+    {"key": "build_up_sec", "label": "장면 앞 여유", "type": "number",
+     "min": 0, "max": 15, "step": 0.5, "unit": "초",
+     "help": "골이 들어가기 전 상황을 얼마나 보여줄지."},
+    {"key": "max_len_sec", "label": "장면 최대 길이", "type": "number",
+     "min": 5, "max": 60, "step": 1, "unit": "초"},
+    {"key": "crossfade_sec", "label": "장면 전환 길이", "type": "number",
+     "min": 0, "max": 2, "step": 0.1, "unit": "초",
+     "help": "0이면 툭 끊어서 붙입니다."},
+    {"key": "locate.enabled", "label": "골대 위치로 시작점 보정", "type": "bool",
+     "help": "골대 영역의 움직임을 찾아 컷 시작점을 정확히 맞춥니다. 골대 위치를 그려둔 경우에만 동작합니다."},
+    {"key": "vision.enabled", "label": "AI 골 라벨링", "type": "bool",
+     "help": "후보가 골인지 AI에 물어 데이터로만 기록합니다. 장면을 지우거나 화면에 표시하지 않습니다. API 키가 필요합니다."},
+    {"key": "hw_encode", "label": "하드웨어 인코딩", "type": "bool",
+     "help": "GPU로 렌더해 약 2배 빠릅니다. 결과가 이상하면 끄고 다시 시도하세요."},
+    {"key": "output_width", "label": "출력 가로", "type": "number",
+     "min": 640, "max": 3840, "step": 2, "unit": "px"},
+    {"key": "output_height", "label": "출력 세로", "type": "number",
+     "min": 360, "max": 2160, "step": 2, "unit": "px"},
+]
+
+
+def _config_path():
+    return os.path.join(STATE["root"], "config.yaml")
+
+
+def settings_payload():
+    from src.config_edit import read_values
+    p = _config_path()
+    values = read_values(p, [s["key"] for s in SETTINGS]) if os.path.exists(p) else {}
+    return {"path": p, "fields": SETTINGS,
+            "values": {k: values.get(k) for k in (s["key"] for s in SETTINGS)}}
+
+
+def save_settings(updates):
+    from src.config_edit import set_values
+    changed, missing = set_values(_config_path(), updates)
+    # The plan cache keys off config.yaml's mtime, so a changed setting makes
+    # stale plans recompute on their own -- no cache busting needed here.
+    return {"changed": changed, "missing": missing, **settings_payload()}
+
+
 def _view_settings_path():
     return os.path.join(STATE["root"], "data", "_gui", "view_settings.json")
 
@@ -855,6 +906,8 @@ class Handler(BaseHTTPRequestHandler):
                 # same way the render does rather than rejecting it.
                 out = q.get("output", ["0"])[0] == "1"
                 return self._json({"opened": reveal_dir(rel, allow_outside=out)})
+            if u.path == "/api/settings":
+                return self._json(settings_payload())
             if u.path == "/api/preflight_recheck":
                 from src.preflight import run as _preflight
                 STATE["preflight"] = _preflight(STATE["root"])
@@ -909,6 +962,14 @@ class Handler(BaseHTTPRequestHandler):
         u = urllib.parse.urlparse(self.path)
         q = urllib.parse.parse_qs(u.query)
         try:
+            if u.path == "/api/settings":
+                body = self._read_json()
+                allowed = {f["key"] for f in SETTINGS}
+                # Only keys this UI declares -- the request comes from a browser
+                # and config.yaml has settings that should not be reachable here.
+                updates = {k: v for k, v in (body.get("values") or {}).items()
+                           if k in allowed}
+                return self._json(save_settings(updates))
             if u.path == "/api/bgm_upload":
                 raw_name = q.get("name", ["bgm"])[0]
                 name = os.path.basename(urllib.parse.unquote(raw_name))

@@ -148,6 +148,17 @@
   .key-tbl td:first-child{width:110px;white-space:nowrap}
   kbd{background:#0f1216;border:1px solid #2a323d;border-radius:5px;padding:1px 6px;
     font-size:12px;font-family:inherit;color:#e7ebf0}
+  .set-list{display:flex;flex-direction:column;gap:2px;margin:6px 0}
+  .set-row{display:flex;align-items:center;gap:10px;padding:7px 4px;
+    border-bottom:1px solid #1c232c;font-size:13px}
+  .set-row:last-child{border-bottom:0}
+  .set-row>span:first-child{flex:1}
+  .set-row b{font-weight:600;color:#e7ebf0}
+  .set-row i{display:block;font-style:normal;font-size:11px;color:#8b95a3;margin-top:2px;line-height:1.45}
+  .set-ctl{display:flex;align-items:center;gap:6px;white-space:nowrap}
+  .set-ctl input[type=number]{width:74px}
+  .set-ctl input[type=range]{width:110px}
+  .set-ctl output{min-width:30px;text-align:right;color:#e7ebf0;font-size:12px}
 </style>
 </head>
 <body>
@@ -192,6 +203,55 @@ document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{
 });
 
 async function loadState(){ const [st,pf]=await Promise.all([api('/api/state'),api('/api/preflight').catch(()=>null)]); STATE=st; STATE.preflight=pf; $('#root').textContent='📁 '+STATE.root; renderSetup(); }
+
+
+/* ---------- 세부 설정 ---------- */
+// config.yaml 을 직접 열지 않고도 결과를 바꿀 수 있게. 서버가 값과 설명을
+// 같이 내려주므로 여기서는 그리기만 한다.
+async function renderSettings(){
+  const box=$('#settingsCard'); if(!box) return;
+  let s; try{ s=await api('/api/settings'); }catch(e){ box.innerHTML=''; return; }
+  const row=f=>{
+    const v=s.values[f.key];
+    if(f.type==='bool')
+      return `<label class="set-row"><input type="checkbox" data-k="${f.key}" ${v?'checked':''}>
+        <span><b>${f.label}</b>${f.help?`<i>${f.help}</i>`:''}</span></label>`;
+    if(f.type==='range')
+      return `<div class="set-row"><span><b>${f.label}</b>${f.help?`<i>${f.help}</i>`:''}</span>
+        <span class="set-ctl"><span class="mut">많이</span>
+        <input type="range" data-k="${f.key}" min="${f.min}" max="${f.max}" step="${f.step}" value="${v}">
+        <span class="mut">적게</span><output>${v}</output></span></div>`;
+    return `<div class="set-row"><span><b>${f.label}</b>${f.help?`<i>${f.help}</i>`:''}</span>
+      <span class="set-ctl"><input type="number" data-k="${f.key}" min="${f.min}" max="${f.max}"
+        step="${f.step}" value="${v}">${f.unit?`<span class="mut">${f.unit}</span>`:''}</span></div>`;
+  };
+  box.innerHTML=`<div class="row"><b>세부 설정</b>
+      <span class="mut" style="margin-left:auto;font-size:11px">바꾸면 다음 “장면 찾기”부터 적용됩니다</span></div>
+    <div class="set-list">${s.fields.map(row).join('')}</div>
+    <div class="row"><span id="setStat" class="mut" style="font-size:12px"></span>
+      <button class="btn primary" id="setSave" style="margin-left:auto" disabled>저장</button></div>`;
+
+  const dirty={};
+  box.querySelectorAll('[data-k]').forEach(el=>{
+    const f=s.fields.find(x=>x.key===el.dataset.k);
+    el.oninput=()=>{
+      const val=f.type==='bool'?el.checked:parseFloat(el.value);
+      dirty[el.dataset.k]=val;
+      const o=el.parentElement.querySelector('output'); if(o)o.textContent=val;
+      $('#setSave').disabled=false;
+      $('#setStat').textContent='저장하지 않은 변경이 있습니다';
+    };
+  });
+  $('#setSave').onclick=async()=>{
+    $('#setSave').disabled=true; $('#setStat').textContent='저장 중…';
+    try{
+      const r=await api('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({values:dirty})});
+      $('#setStat').textContent=r.changed.length?`저장됨 (${r.changed.length}개 변경)`:'변경 사항 없음';
+      Object.keys(dirty).forEach(k=>delete dirty[k]);
+    }catch(e){ $('#setStat').textContent='저장 실패: '+e.message; $('#setSave').disabled=false; }
+  };
+}
 
 /* ---------- ① SETUP ---------- */
 let setupCamCount=2;
@@ -437,6 +497,7 @@ function renderSetup(){
         </div>
       </div>
       <div>
+        <div class="card" id="settingsCard"></div>
         <div class="card">
           <div class="row"><b>카메라 입력</b><span class="mut">${totalFiles}개 파일 · 전체 ${allFiles}개</span></div>
           ${ss.length>1?`<div class="row"><span class="mut">날짜 폴더</span><select id="setupSession">${ss.map(s=>`<option value="${s.id}" ${s.id===setupSession?'selected':''}>${s.label} · 영상 ${s.count||0}개</option>`).join('')}</select></div>`:''}
@@ -460,6 +521,7 @@ function renderSetup(){
   if(or1) or1.onclick=()=>reveal(rawPath);
   if(or2) or2.onclick=()=>reveal(rawPath);
   const rc=$('#recheckEnv'); if(rc) rc.onclick=async()=>{await api('/api/preflight_recheck');await loadState();};
+  renderSettings();
   $('#setupSession')?.addEventListener('change',e=>{setupSession=e.target.value;window._edSession=setupSession;renderSetup();});
   $('#refreshOnly')?.addEventListener('click',()=>refresh().catch(e=>alert(e.message)));
   $('#goEdit')?.addEventListener('click',()=>{window._edSession=setupSession;document.querySelector('[data-tab="edit"]').click();});

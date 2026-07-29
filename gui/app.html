@@ -12,10 +12,15 @@
   *{box-sizing:border-box;} body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 'Noto Sans KR',-apple-system,Segoe UI,Roboto,sans-serif;}
   button,input,select{font-family:inherit;}
   header{background:var(--panel);border-bottom:1px solid var(--line);padding:10px 16px;display:flex;gap:8px;align-items:center;}
-  header h1{font-size:15px;margin:0 14px 0 0;}
+  header h1{font-size:15px;margin:0 10px 0 0;}
+  .tagline{color:var(--mut);font-size:12px;margin-right:14px;white-space:nowrap;}
+  @media (max-width:900px){.tagline{display:none}}
   .tab{background:none;border:none;color:var(--mut);padding:8px 12px;cursor:pointer;border-radius:7px;font-size:13px;}
   .tab.on{background:#232b34;color:var(--fg);}
-  #root{margin-left:auto;color:var(--mut);font-size:12px;max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .rootbtn{margin-left:auto;color:var(--mut);font-size:12px;max-width:34%;overflow:hidden;
+    text-overflow:ellipsis;white-space:nowrap;direction:rtl;text-align:right;
+    background:none;border:1px solid transparent;border-radius:6px;padding:4px 8px;cursor:pointer;}
+  .rootbtn:hover{border-color:var(--line);color:#c7d0da;}
   main{max-width:1000px;margin:0 auto;padding:16px;}
   .btn{background:#232a33;color:var(--fg);border:1px solid var(--line);border-radius:7px;padding:6px 11px;cursor:pointer;font-size:13px;}
   .btn:hover{border-color:var(--accent);} .btn.primary{background:var(--accent);color:#04101f;border-color:var(--accent);font-weight:600;}
@@ -173,15 +178,19 @@
   details.card>summary::-webkit-details-marker{display:none}
   details.card>summary::before{content:'▸';color:#8b95a3;font-size:11px}
   details.card[open]>summary::before{content:'▾'}
+  .intro{margin:0 0 12px;padding:11px 14px;border:1px solid var(--line);border-radius:10px;
+    background:var(--panel);font-size:13px;line-height:1.65;color:#c7d0da;}
+  .intro b{color:#e7ebf0;}
 </style>
 </head>
 <body>
 <header>
-  <h1>🎬 autoPitch 스튜디오</h1>
+  <h1>🎬 autoPitch</h1>
+  <span class="tagline">긴 경기 영상에서 하이라이트만 자동으로</span>
   <button class="tab on" data-tab="setup">① 설정</button>
   <button class="tab" data-tab="cal">② 골대 위치</button>
   <button class="tab" data-tab="edit">③ 편집·렌더</button>
-  <span id="root">–</span>
+  <button id="root" class="rootbtn" title="작업 폴더 열기">–</button>
 </header>
 <main>
   <section id="setup"></section>
@@ -216,7 +225,11 @@ document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{
   if(b.dataset.tab==='edit') renderEdit();
 });
 
-async function loadState(){ const [st,pf]=await Promise.all([api('/api/state'),api('/api/preflight').catch(()=>null)]); STATE=st; STATE.preflight=pf; $('#root').textContent='📁 '+STATE.root; renderSetup(); }
+// 헤더의 경로는 눌러서 작업 폴더를 연다 — 표시만 하고 갈 수 없으면 소용이 없다.
+document.querySelector('#root').onclick=()=>
+  api('/api/reveal?path=').catch(e=>alert(e.message));
+
+async function loadState(){ const [st,pf]=await Promise.all([api('/api/state'),api('/api/preflight').catch(()=>null)]); STATE=st; STATE.preflight=pf; $('#root').textContent=STATE.root; renderSetup(); }
 
 
 
@@ -228,6 +241,14 @@ async function renderCamSources(){
   let s; try{ s=await api('/api/sources'); }catch(e){ box.innerHTML=''; return; }
   const cams=s.cameras||{}, counts=s.counts||{};
   const configured=Object.keys(cams).length;
+  // 지정하지 않았을 때 실제로 쓰이는 폴더를 그대로 보여준다 — "지정되지 않았습니다"만
+  // 띄우면 아래 목록에 영상이 8개 보이는 것과 모순으로 읽힌다.
+  // 전체 목록의 첫 항목을 쓰면 예전 구조에서 남은 빈 data/raw/cam1 을 집는다.
+  // 지금 선택된 날짜 폴더의 카메라를 봐야 한다.
+  const fallback={};
+  const sess=((STATE.setup&&STATE.setup.sessions)||[]);
+  const cur=sess.find(x=>x.id===setupSession)||sess.find(x=>x.count>0)||sess[0];
+  ((cur&&cur.cameras)||[]).forEach(c=>{ if(!fallback[c.id]) fallback[c.id]=c; });
   if(camCount===null) camCount=configured||2;
   const ids=Array.from({length:camCount},(_,i)=>`cam${i+1}`);
   box.innerHTML=`
@@ -237,14 +258,21 @@ async function renderCamSources(){
       ${[1,2,3,4].map(n=>`<button class="tbtn ${camCount===n?'on':''}" data-n="${n}">${n}대</button>`).join('')}</div>
     <div class="src-list">${ids.map(id=>{
       const p=cams[id]||''; const n=counts[id];
+      const fb=fallback[id];       // 지정 안 했을 때 실제로 쓰이는 폴더
       return `<div class="src-row">
         <b>${id}</b>
-        <span class="src-path ${p?'':'mut'}" title="${p}">${p||'폴더가 지정되지 않았습니다'}</span>
-        <span class="mut src-n">${p?`영상 ${n??0}개`:''}</span>
+        <span class="src-path ${p?'':'mut'}" title="${p||fb&&fb.path||''}">${
+          p || (fb?fb.path:'아직 없습니다')}</span>
+        <span class="mut src-n">${p?`영상 ${n??0}개`:(fb?`영상 ${fb.count}개`:'')}</span>
         <button class="tbtn" data-pick="${id}">${p?'변경':'폴더 선택'}</button>
       </div>`;}).join('')}</div>
-    ${configured?`<div class="row"><button class="tbtn" id="srcClear">지정 해제하고 data/raw 사용</button></div>`:
-      `<div class="mut" style="font-size:11px;margin-top:6px">지정하지 않으면 작업 폴더의 <code>data/raw/&lt;날짜&gt;/cam1</code> 구조를 씁니다.</div>`}`;
+    ${configured
+      ? `<div class="row"><span class="mut" style="font-size:11px;flex:1">직접 지정한 폴더를 쓰는 중입니다.</span>
+         <button class="tbtn" id="srcClear">기본값으로</button></div>`
+      : `<div class="mut" style="font-size:11px;margin-top:6px">${
+          Object.keys(fallback).length
+            ? '작업 폴더 안에서 찾은 폴더를 쓰고 있습니다. 다른 곳의 촬영본을 쓰려면 폴더를 지정하세요.'
+            : '촬영본이 있는 폴더를 카메라별로 지정하세요.'}</div>`}`;
 
   box.querySelectorAll('[data-n]').forEach(b=>b.onclick=()=>{camCount=+b.dataset.n;renderCamSources();});
   box.querySelectorAll('[data-pick]').forEach(b=>b.onclick=async()=>{
@@ -531,6 +559,11 @@ function renderSetup(){
           ? {title:'편집 준비 완료',desc:STATE.rois_exists?'날짜를 고르고 편집으로 이동하면 찾아낸 장면이 나옵니다.':'바로 편집으로 가도 되고, 골대 위치를 한 번 그려두면 컷 시작점이 더 정확해집니다.',actions:'ready'}
           : {title:'영상은 찾았지만 경기 목록이 비어 있습니다',desc:'카메라 한 대면 cam1 에만 넣으면 됩니다. 여러 대라면 각 폴더의 영상 개수가 같은지, 같은 경기를 찍은 파일인지 확인해 주세요.',actions:'refresh'};
   $('#setup').innerHTML=`
+    <div class="intro">
+      <b>소리로 하이라이트를 찾습니다.</b> 골이 들어가면 사람들이 반응하고, 그 순간 소리가 튑니다 —
+      두 시간을 다 볼 필요가 없습니다. 카메라를 고정해 두면 골대 위치까지 알 수 있어 컷 시작점도
+      정확해집니다. <span class="mut">영상은 이 컴퓨터 밖으로 나가지 않습니다.</span>
+    </div>
     <div class="setup-grid">
       <div>
         <!-- 지금 뭘 해야 하는지가 항상 첫 번째 — ✓ 목록 아래에 두면 스크롤해야 보인다 -->
@@ -615,7 +648,7 @@ function renderSetup(){
       const p=await pickDir(STATE.root); if(!p)return;
       STATE=await api('/api/root',{method:'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({path:p})});
-      $('#root').textContent='📁 '+STATE.root; await loadState();
+      $('#root').textContent=STATE.root; await loadState();
     }catch(e){alert(e.message);}
   };
   $('#reloadState').onclick=()=>refresh().catch(e=>alert(e.message));
@@ -651,7 +684,7 @@ function renderSetup(){
   $('#goEdit')?.addEventListener('click',()=>{window._edSession=setupSession;document.querySelector('[data-tab="edit"]').click();});
   $('#goCal')?.addEventListener('click',()=>{window._edSession=setupSession;document.querySelector('[data-tab="cal"]').click();});
   document.querySelectorAll('[data-cams]').forEach(b=>b.onclick=()=>{setupCamCount=parseInt(b.dataset.cams,10);renderSetup();});
-  $('#prepFolders')?.addEventListener('click',async()=>{try{STATE=await api('/api/prepare',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cams:setupCamCount})});$('#root').textContent='📁 '+STATE.root;renderSetup();}catch(e){alert(e.message);}});
+  $('#prepFolders')?.addEventListener('click',async()=>{try{STATE=await api('/api/prepare',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({cams:setupCamCount})});$('#root').textContent=STATE.root;renderSetup();}catch(e){alert(e.message);}});
 }
 
 /* ---------- ② CALIBRATION ---------- */

@@ -516,6 +516,17 @@ async function renderCal(){
     </div>`;
   const cv=$('#calCv'),ctx=cv.getContext('2d');
   const curKey=()=>$('#calKey').value.trim();
+  // The pipeline (src/goal_locator.roi_for_cam) also matches a saved ROI by
+  // file name, so a box drawn before the footage was reorganised into date
+  // folders still applies. Mirror that here -- otherwise the tab reports
+  // "아직 안 그림" for work that is in fact being used, and people redraw it.
+  const roiFor=key=>{
+    if(!key)return null;
+    if(rois[key])return rois[key];
+    const base=key.split('/').pop().toLowerCase();
+    const hit=Object.keys(rois).find(k=>k.split('/').pop().toLowerCase()===base);
+    return hit?rois[hit]:null;
+  };
   const isFlippedKey=key=>!!viewSettings.flips[key];
   const isFlipped=()=>isFlippedKey(curKey());
   const viewToStore=(box,key=curKey())=>isFlippedKey(key)?{x:cv.width-box.x-box.w,y:box.y,w:box.w,h:box.h}:box;
@@ -523,11 +534,11 @@ async function renderCal(){
   const calMsg=(txt,color)=>{ctx.fillStyle='#0e1116';ctx.fillRect(0,0,cv.width,cv.height);ctx.fillStyle=color;ctx.font='14px sans-serif';ctx.fillText(txt,20,cv.height/2);};
   const fillCams=()=>{
     const sel=$('#calCam'), keep=sel.value;
-    sel.innerHTML=cams.map(c=>{const done=rois[keyGuess(c)]?' ✓':'';return `<option value="${c}">${camPathLabel(c)}${done}</option>`;}).join('');
+    sel.innerHTML=cams.map(c=>{const done=roiFor(keyGuess(c))?' ✓':'';return `<option value="${c}">${camPathLabel(c)}${done}</option>`;}).join('');
     if(keep&&cams.includes(keep))sel.value=keep;
   };
-  const restoreBox=()=>{const v=rois[curKey()];calBox=v?storeToView({x:v[0]*cv.width,y:v[1]*cv.height,w:v[2]*cv.width,h:v[3]*cv.height}):null;};
-  const updStat=()=>{$('#calStat').textContent=rois[curKey()]?'✓ 저장됨':'아직 안 그림 — 골대를 드래그하세요';};
+  const restoreBox=()=>{const v=roiFor(curKey());calBox=v?storeToView({x:v[0]*cv.width,y:v[1]*cv.height,w:v[2]*cv.width,h:v[3]*cv.height}):null;};
+  const updStat=()=>{$('#calStat').textContent=roiFor(curKey())?'✓ 저장됨':'아직 안 그림 — 골대를 드래그하세요';};
   window.drawCal=()=>{ctx.clearRect(0,0,cv.width,cv.height);
     if(calImg){
       if(isFlipped()){ctx.save();ctx.translate(cv.width,0);ctx.scale(-1,1);ctx.drawImage(calImg,0,0,cv.width,cv.height);ctx.restore();}
@@ -549,7 +560,7 @@ async function renderCal(){
     im.onload=()=>{ if(myReq!==calReq) return;   // a newer switch happened -> ignore this stale frame
       calImg=im; calShownKey=key;
       const w=Math.min(720,im.naturalWidth); cv.width=w; cv.height=Math.round(im.naturalHeight*w/im.naturalWidth);
-      const v=rois[key]; calBox=v?storeToView({x:v[0]*cv.width,y:v[1]*cv.height,w:v[2]*cv.width,h:v[3]*cv.height},key):null;  // restore THIS key's box
+      const v=roiFor(key); calBox=v?storeToView({x:v[0]*cv.width,y:v[1]*cv.height,w:v[2]*cv.width,h:v[3]*cv.height},key):null;  // restore THIS key's box
       drawCal(); updStat();
     };
     im.onerror=()=>{ if(myReq!==calReq) return; calImg=null; calMsg('프레임 로드 실패 — 서버가 켜져 있는지 확인하세요 (gui/server.py)','#ff6b6b'); };
@@ -755,9 +766,9 @@ async function renderEdit(){
           <div class="field"><label class="mut">파일 이름</label><input id="renderFile" value="${window._edFile||'highlight_all.mp4'}"></div>
           <div class="field"><label class="mut">BGM</label><input id="renderBgm" value="${window._edBgm||''}" readonly placeholder="선택 안 함"></div>
           <div class="field"><label class="mut">BGM 음량</label><input id="renderVol" type="number" min="0" max="0.5" step="0.05" value="${window._edVol||0.15}"></div>
-          <div class="field"><label class="mut">최종 FPS</label><select id="renderFps"><option value="30">30 fps</option><option value="60">60 fps</option></select></div>
-          <div class="field"><label class="mut">전환(초)</label><input id="renderXf" type="number" min="0" step="0.1" value="0"></div>
-          <div class="field"><label class="mut">후행 여백</label><input id="renderTail" type="number" min="0" max="8" step="0.5" value="${window._edTail??2}"></div>
+          <div class="field"><label class="mut">프레임레이트</label><select id="renderFps"><option value="30">30 fps</option><option value="60">60 fps</option></select></div>
+          <div class="field"><label class="mut">장면 전환 길이(초)</label><input id="renderXf" type="number" min="0" step="0.1" value="0"></div>
+          <div class="field"><label class="mut">장면 끝 여유(초)</label><input id="renderTail" type="number" min="0" max="8" step="0.5" value="${window._edTail??2}"></div>
           <div class="mut" id="renderSummary" style="margin-top:8px"></div>
         </div>
         <div class="mf">
@@ -951,13 +962,14 @@ async function renderEdit(){
     $('#renderFps').value=String(window._edFps||60);
     $('#renderXf').value=$('#edXf').value||0;
     $('#renderTail').value=window._edTail??2;
-    $('#renderSummary').textContent=`포함 클립 ${included}개 · 예상 합계 ${fmtT(seqDur())} · 후행 여백은 각 클립 마지막에 추가됩니다.`;
+    $('#renderSummary').textContent=`장면 ${included}개 · 예상 길이 ${fmtT(seqDur())} · '장면 끝 여유'는 각 장면 뒤에 그만큼 더 붙입니다.`;
+    showKeys(false);          // 두 모달이 겹쳐 뜨지 않게
     $('#renderModal').hidden=false;
   };
   const closeRenderModal=()=>{$('#renderModal').hidden=true;};
   const keyModal=$('#keyModal');
   const showKeys=v=>{if(keyModal)keyModal.hidden=!v;};
-  $('#keyHelp').onclick=()=>showKeys(true);
+  $('#keyHelp').onclick=()=>{closeRenderModal();showKeys(true);};
   $('#keyClose').onclick=()=>showKeys(false);
   keyModal.addEventListener('mousedown',e=>{if(e.target===keyModal)showKeys(false);});
   $('#edRender').onclick=openRenderModal;
@@ -1454,7 +1466,13 @@ async function startRender(){
           if(window.updateJobPanel)window.updateJobPanel(jobToken,'렌더',msg,pct);
           setTimeout(poll,1000);}
         else if(s.status==='done'){$('#edProg').style.width='100%';
-          $('#edRstat').textContent=`✓ 최종 파일 → ${s.output||window._edOut}`;
+          // 경로만 던져주고 끝내면 사용자가 직접 찾아가야 한다.
+          const outPath=s.output||window._edOut;
+          $('#edRstat').innerHTML=`✓ 완성 — <b>${(outPath||'').split('/').pop()}</b> `;
+          const ob=document.createElement('button');
+          ob.className='tbtn'; ob.textContent='결과 폴더 열기';
+          ob.onclick=()=>api('/api/reveal?output=1&path='+encodeURIComponent(outPath)).catch(e=>alert(e.message));
+          $('#edRstat').appendChild(ob);
           if(window.updateJobPanel)window.updateJobPanel(jobToken,'렌더','완료',100);
           if(window.endJobPanel)window.endJobPanel(jobToken,1200);
           if(renderBtn)renderBtn.disabled=false;}

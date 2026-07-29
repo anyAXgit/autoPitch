@@ -226,7 +226,7 @@ def state_payload():
     }
 
 
-def reveal_dir(rel):
+def reveal_dir(rel, allow_outside=False):
     """Open a project folder in the OS file manager.
 
     The setup screen tells people to drop footage into data/raw/cam1; without
@@ -234,7 +234,9 @@ def reveal_dir(rel):
     packaged app is supposed to remove. Constrained to the project root -- the
     path comes from the browser.
     """
-    full = within_root(rel)
+    full = output_dir_path(rel) if allow_outside else within_root(rel)
+    if os.path.isfile(full):
+        full = os.path.dirname(full)
     os.makedirs(full, exist_ok=True)
     sysname = platform.system()
     if sysname == "Darwin":
@@ -846,8 +848,13 @@ class Handler(BaseHTTPRequestHandler):
                     STATE["preflight"] = _preflight(STATE["root"])
                 return self._json(STATE["preflight"])
             if u.path == "/api/reveal":
-                rel = urllib.parse.parse_qs(u.query).get("path", ["data/raw"])[0]
-                return self._json({"opened": reveal_dir(rel)})
+                q = urllib.parse.parse_qs(u.query)
+                rel = q.get("path", ["data/raw"])[0]
+                # Render output may sit outside the project root because the
+                # user picked it in the native folder dialog; resolve it the
+                # same way the render does rather than rejecting it.
+                out = q.get("output", ["0"])[0] == "1"
+                return self._json({"opened": reveal_dir(rel, allow_outside=out)})
             if u.path == "/api/preflight_recheck":
                 from src.preflight import run as _preflight
                 STATE["preflight"] = _preflight(STATE["root"])

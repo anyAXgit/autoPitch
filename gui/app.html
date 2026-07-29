@@ -127,13 +127,19 @@
   .dir-item{display:flex;align-items:center;gap:8px;width:100%;text-align:left;margin:2px 0;padding:7px 8px;background:#151b23;border:1px solid var(--line);border-radius:7px;color:var(--fg);cursor:pointer;}
   .dir-item:hover{border-color:var(--accent);}
   @media(max-width:760px){.setup-grid{grid-template-columns:1fr;}}
+  .help-box{background:#161b22;border:1px solid #2a323d;border-radius:10px;
+    padding:12px 14px;margin:8px 0 12px;line-height:1.55;font-size:14px}
+  .steps3{display:flex;flex-direction:column;gap:7px;margin-top:6px;font-size:14px;line-height:1.5}
+  .steps3 b{display:inline-block;width:20px;height:20px;line-height:20px;text-align:center;
+    border-radius:50%;background:#2a323d;color:#e7ebf0;font-size:12px;margin-right:7px}
+  .steps3 code{background:#0f1216;padding:1px 5px;border-radius:4px;font-size:13px}
 </style>
 </head>
 <body>
 <header>
   <h1>🎬 autoPitch 스튜디오</h1>
   <button class="tab on" data-tab="setup">① 설정</button>
-  <button class="tab" data-tab="cal">② 골 ROI</button>
+  <button class="tab" data-tab="cal">② 골대 위치</button>
   <button class="tab" data-tab="edit">③ 편집·렌더</button>
   <span id="root">–</span>
 </header>
@@ -351,7 +357,7 @@ function renderSetup(){
     ...envChecks,
     {ok:setup.config_exists,title:'프로젝트 확인',desc:setup.config_exists?'하이라이트 설정 파일을 찾았습니다.':'선택한 폴더에서 config.yaml을 찾지 못했습니다. autoPitch 프로젝트 폴더를 선택하세요.'},
     {ok:setup.raw_exists&&cams.length,title:'카메라 폴더',desc:cams.length?`${cams.length}개 카메라 폴더가 준비되어 있습니다.`:'촬영 방식에 맞춰 아래 버튼으로 작업 공간을 준비하세요.'},
-    {ok:allFiles>0,title:'원본 영상',desc:allFiles?`${allFiles}개 원본 영상을 찾았습니다.`:'준비된 cam 폴더에 경기 영상을 넣으면 자동으로 감지합니다.'},
+    {ok:allFiles>0,title:'원본 영상',desc:allFiles?`${allFiles}개 원본 영상을 찾았습니다.`:'cam 폴더에 경기 영상을 넣으면 자동으로 찾아냅니다.'},
     {ok:allGames.length>0,warn:allFiles>0&&!allGames.length,title:'경기 감지',desc:allGames.length?`${allGames.length}개 경기를 편집할 수 있습니다.`:(allFiles?'영상은 있지만 아직 경기로 묶지 못했습니다. 여러 카메라 촬영본은 촬영시각 메타데이터가 필요합니다.':'영상이 들어오면 여기에 경기 목록이 표시됩니다.')},
   ];
   const blocking=(STATE.preflight&&STATE.preflight.blocking)||[];
@@ -363,15 +369,23 @@ function renderSetup(){
     : STATE.setup_error
     ? {title:'영상 정보를 읽지 못했습니다',desc:STATE.setup_error,actions:''}
     : !setup.config_exists
-      ? {title:'프로젝트 폴더를 먼저 맞춰 주세요',desc:'상단 입력칸에 autoPitch 프로젝트 폴더를 지정하면 현재 상태를 다시 확인합니다.',actions:''}
+      ? {title:'프로젝트 폴더를 먼저 맞춰 주세요',desc:'위 입력칸에 작업 폴더를 지정하면 현재 상태를 다시 확인합니다. 처음이라면 홈 폴더의 autoPitch 를 쓰면 됩니다.',actions:''}
         : !allFiles
-        ? {title:'원본 영상을 넣으면 시작됩니다',desc:'촬영 방식에 맞춰 작업 공간을 만든 뒤 Finder에서 각 cam 폴더에 영상을 넣고 새로고침하세요.',actions:'prepare'}
+        ? {title:'원본 영상을 넣으면 시작됩니다',desc:'카메라 대수를 고르고 작업 공간을 만든 뒤, 영상 폴더 열기로 각 cam 폴더에 촬영본을 넣고 새로고침하세요.',actions:'prepare'}
         : allGames.length
-          ? {title:'편집 준비 완료',desc:STATE.rois_exists?'날짜 폴더를 선택한 뒤 하이라이트를 불러오거나, 필요하면 ROI를 다시 조정할 수 있습니다.':'골망 ROI를 잡으면 골 장면 앵커가 더 정확해집니다.',actions:'ready'}
-          : {title:'영상은 찾았지만 경기 목록이 비어 있습니다',desc:'단일캠은 cam1만 사용하세요. 여러 카메라는 각 cam 폴더의 파일 수와 촬영시각이 맞는지 확인한 뒤 새로고침하세요.',actions:'refresh'};
+          ? {title:'편집 준비 완료',desc:STATE.rois_exists?'날짜를 고르고 편집으로 이동하면 찾아낸 장면이 나옵니다.':'바로 편집으로 가도 되고, 골대 위치를 한 번 그려두면 컷 시작점이 더 정확해집니다.',actions:'ready'}
+          : {title:'영상은 찾았지만 경기 목록이 비어 있습니다',desc:'카메라 한 대면 cam1 에만 넣으면 됩니다. 여러 대라면 각 폴더의 영상 개수가 같은지, 같은 경기를 찍은 파일인지 확인해 주세요.',actions:'refresh'};
   $('#setup').innerHTML=`
     <div class="setup-grid">
       <div>
+        <div class="card">
+          <div class="row"><b>이렇게 진행됩니다</b><span class="mut">2시간 영상 기준 경기당 3~5분 정도 걸립니다.</span></div>
+          <div class="steps3">
+            <div><b>1</b> 촬영한 영상을 <code>cam1</code>, <code>cam2</code> 폴더에 넣습니다.</div>
+            <div><b>2</b> 골대가 화면 어디인지 한 번 그려줍니다. <span class="mut">(건너뛰어도 됩니다)</span></div>
+            <div><b>3</b> 자동으로 찾은 장면을 확인·수정하고 내보냅니다.</div>
+          </div>
+        </div>
         <div class="card">
           <div class="row"><b>시작할 프로젝트</b><span class="mut">현재 폴더를 확인하고 필요한 단계만 보여줍니다.</span></div>
           <div class="row"><input id="rootIn" style="flex:1" value="${STATE.root}">
@@ -389,10 +403,12 @@ function renderSetup(){
             ${next.actions==='prepare'?`<div class="choice">
               ${[1,2,3,4].map(n=>`<button class="tbtn ${setupCamCount===n?'on':''}" data-cams="${n}">${n}대 촬영</button>`).join('')}
               <button class="btn primary" id="prepFolders">작업 공간 준비</button>
+              ${cams.length?`<button class="btn" id="openRaw">영상 폴더 열기</button>`:''}
             </div>`:''}
             ${next.actions==='ready'?`<div class="choice">
               <button class="btn primary" id="goEdit">편집으로 이동</button>
-              <button class="btn" id="goCal">ROI 조정</button>
+              <button class="btn" id="goCal">골대 위치 잡기</button>
+              <button class="btn" id="openRaw2">영상 폴더 열기</button>
             </div>`:''}
             ${next.actions==='refresh'?`<div class="choice"><button class="btn primary" id="refreshOnly">다시 확인</button></div>`:''}
             ${next.actions==='recheck'?`<div class="choice"><button class="btn primary" id="recheckEnv">설치했습니다 · 다시 확인</button></div>`:''}
@@ -417,6 +433,11 @@ function renderSetup(){
   const refresh=async()=>{await loadState();};
   $('#setRoot').onclick=async()=>{ try{ STATE=await api('/api/root',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:$('#rootIn').value})}); $('#root').textContent='📁 '+STATE.root; renderSetup(); }catch(e){alert(e.message);} };
   $('#reloadState').onclick=()=>refresh().catch(e=>alert(e.message));
+  const reveal=async p=>{try{await api('/api/reveal?path='+encodeURIComponent(p));}catch(e){alert(e.message);}};
+  const or1=$('#openRaw'), or2=$('#openRaw2');
+  const rawPath=(cams[0]&&cams[0].path)||'data/raw';
+  if(or1) or1.onclick=()=>reveal(rawPath);
+  if(or2) or2.onclick=()=>reveal(rawPath);
   const rc=$('#recheckEnv'); if(rc) rc.onclick=async()=>{await api('/api/preflight_recheck');await loadState();};
   $('#setupSession')?.addEventListener('change',e=>{setupSession=e.target.value;window._edSession=setupSession;renderSetup();});
   $('#refreshOnly')?.addEventListener('click',()=>refresh().catch(e=>alert(e.message)));
@@ -447,7 +468,16 @@ async function renderCal(){
   const camPathLabel=p=>`${camId(p)} · ${p.split('/').pop()}`;
   $('#cal').innerHTML=`
     <div class="card">
-      <div class="row"><b>골망 ROI 캘리브레이션</b> <span class="mut">파일마다 가까운 골망 하나를 드래그로 박스. 경기·카메라별 프레임 차이를 따로 저장합니다.</span></div>
+      <div class="row"><b>골대 위치 잡기</b> <span class="mut">건너뛰어도 하이라이트는 만들어집니다.</span></div>
+      <div class="help-box">
+        <b>화면에서 골대가 어디인지 한 번만 알려주면 됩니다.</b>
+        아래 사진에서 <b>가까운 쪽 골대를 드래그해서 네모로 감싸주세요.</b> 카메라를 고정해 두었으니
+        골대는 늘 같은 자리에 있고, 그래서 한 번만 그리면 그 영상 내내 씁니다.
+        <div class="mut" style="margin-top:6px">
+          이걸 해두면 — 공이 골망을 흔든 순간을 찾아 컷 시작점이 더 정확해지고,
+          골이 들어간 쪽 카메라를 골라 씁니다. 안 해도 소리만으로 하이라이트는 나옵니다.
+        </div>
+      </div>
       <div class="row">
         <select id="calSession">${ss.map(s=>`<option value="${s.id}" ${s.id===calSession?'selected':''}>${s.label}</option>`).join('')}</select>
         <select id="calCam"></select>
@@ -457,10 +487,10 @@ async function renderCal(){
         <button class="btn" id="calGrab">프레임 새로고침</button>
         <input id="calKey" type="hidden">
         <span id="calStat" class="mut"></span>
-        <button class="btn primary" id="calSave" style="margin-left:auto">net_rois.json 저장</button>
+        <button class="btn primary" id="calSave" style="margin-left:auto">저장</button>
       </div>
       <canvas id="calCv" width="720" height="405"></canvas>
-      <div class="mut" style="margin:6px 0 0">골망을 드래그하면 <b>현재 파일 전용 ROI</b>로 자동 저장됩니다. 다시 그리면 갱신, 아래 표에서 삭제.</div>
+      <div class="mut" style="margin:6px 0 0">드래그하면 <b>이 영상 전용</b>으로 저장됩니다. 다시 그리면 갱신, 아래 표에서 삭제. 영상마다 각각 그려주세요.</div>
       <table id="calTbl"></table>
     </div>`;
   const cv=$('#calCv'),ctx=cv.getContext('2d');
@@ -476,7 +506,7 @@ async function renderCal(){
     if(keep&&cams.includes(keep))sel.value=keep;
   };
   const restoreBox=()=>{const v=rois[curKey()];calBox=v?storeToView({x:v[0]*cv.width,y:v[1]*cv.height,w:v[2]*cv.width,h:v[3]*cv.height}):null;};
-  const updStat=()=>{$('#calStat').textContent=rois[curKey()]?'✓ 이 파일 저장됨':'미설정 — 골망을 드래그';};
+  const updStat=()=>{$('#calStat').textContent=rois[curKey()]?'✓ 저장됨':'아직 안 그림 — 골대를 드래그하세요';};
   window.drawCal=()=>{ctx.clearRect(0,0,cv.width,cv.height);
     if(calImg){
       if(isFlipped()){ctx.save();ctx.translate(cv.width,0);ctx.scale(-1,1);ctx.drawImage(calImg,0,0,cv.width,cv.height);ctx.restore();}

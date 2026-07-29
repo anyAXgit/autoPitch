@@ -222,6 +222,26 @@ def state_payload():
     }
 
 
+def reveal_dir(rel):
+    """Open a project folder in the OS file manager.
+
+    The setup screen tells people to drop footage into data/raw/cam1; without
+    this they have to go find it themselves, which is exactly the friction the
+    packaged app is supposed to remove. Constrained to the project root -- the
+    path comes from the browser.
+    """
+    full = within_root(rel)
+    os.makedirs(full, exist_ok=True)
+    sysname = platform.system()
+    if sysname == "Darwin":
+        subprocess.run(["open", full], check=False)
+    elif sysname == "Windows":
+        os.startfile(full)                       # noqa: S606 - documented API
+    else:
+        subprocess.run(["xdg-open", full], check=False)
+    return full
+
+
 def _view_settings_path():
     return os.path.join(STATE["root"], "data", "_gui", "view_settings.json")
 
@@ -794,6 +814,9 @@ class Handler(BaseHTTPRequestHandler):
                     from src.preflight import run as _preflight
                     STATE["preflight"] = _preflight(STATE["root"])
                 return self._json(STATE["preflight"])
+            if u.path == "/api/reveal":
+                rel = urllib.parse.parse_qs(u.query).get("path", ["data/raw"])[0]
+                return self._json({"opened": reveal_dir(rel)})
             if u.path == "/api/preflight_recheck":
                 from src.preflight import run as _preflight
                 STATE["preflight"] = _preflight(STATE["root"])

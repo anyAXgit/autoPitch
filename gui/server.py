@@ -19,6 +19,7 @@ import re
 import shutil
 import tempfile
 import threading
+import time
 import urllib.parse
 import uuid
 import platform
@@ -579,6 +580,12 @@ def _decode_window(path, start, dur, sr):
     return np.frombuffer(out, dtype="<f4")
 
 
+class UserError(Exception):
+    """A message written for the user. Shown as-is, without the class name --
+    "FileNotFoundError: 원본 영상을..." reads like a crash; the sentence alone
+    reads like an instruction."""
+
+
 JOBS = {}       # render job_id -> {"status": running|done|error, "progress": [i, n], ...}
 PLAN_JOBS = {}  # plan job_id -> {"status": running|done|error, "progress": [i, n], ...}
 PLAN_INFLIGHT = {}  # (root, game, fresh) -> running plan job_id
@@ -712,9 +719,27 @@ def _render_job(job_id, plan, out_rel, bgm, bgm_volume, filename):
         bgm_path = within_root(bgm) if bgm else None
 
         def on_clip(i, n, path):
+            # ETA from the rate measured so far. The first clip has no rate to
+            # measure yet, so it reports none rather than a wild guess.
+            done = time.time() - job["started"]
+            eta = round((done / i) * (n - i)) if i else None
             job.update(progress=[i, n], percent=_percent(i, max(1, n + 1)),
-                       stage=f"클립 렌더링 {i}/{n}")
+                       eta_sec=eta, stage=f"클립 렌더링 {i}/{n}")
 
+        # A cached plan can outlive the footage it points at (files moved into
+        # date folders, a drive unplugged). Without this the user gets a raw
+        # CalledProcessError with a 300-character ffmpeg command line.
+        missing = sorted({s["src"] for c in plan.get("clips", [])
+                          for s in c.get("segments", [])
+                          if not os.path.exists(s["src"])})
+        if missing:
+            names = ", ".join(os.path.basename(m) for m in missing[:3])
+            more = f" 외 {len(missing) - 3}개" if len(missing) > 3 else ""
+            raise UserError(
+                f"원본 영상을 찾을 수 없습니다: {names}{more}. "
+                f"파일을 옮겼다면 '처음부터 다시'로 장면을 다시 찾아 주세요.")
+
+        job["started"] = time.time()
         job.update(percent=2, stage="렌더 준비 중")
         clips = render_plan(plan, work_dir, bgm_path, bgm_volume, on_clip=on_clip)
         src = os.path.join(work_dir, "highlight_all.mp4")
@@ -726,6 +751,8 @@ def _render_job(job_id, plan, out_rel, bgm, bgm_volume, filename):
         job.update(percent=100, stage="렌더 완료")
         job.update(status="done",
                    clip_count=len(clips), output=final_path)
+    except UserError as e:
+        job.update(status="error", error=str(e))
     except Exception as e:  # noqa
         job.update(status="error", error=f"{type(e).__name__}: {e}")
 
@@ -733,7 +760,8 @@ def _render_job(job_id, plan, out_rel, bgm, bgm_volume, filename):
 def start_render(plan, out_rel, bgm=None, bgm_volume=0.15, filename=None):
     job_id = uuid.uuid4().hex[:12]
     JOBS[job_id] = {"status": "running", "progress": [0, len(plan.get("clips", []))],
-                    "percent": 0, "stage": "대기 중"}
+                    "percent": 0, "stage": "대기 중", "eta_sec": None,
+                    "started": time.time()}
     t = threading.Thread(target=_render_job,
                          args=(job_id, plan, out_rel, bgm, bgm_volume, filename), daemon=True)
     t.start()

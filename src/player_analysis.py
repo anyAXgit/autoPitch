@@ -1,6 +1,12 @@
 """EXPERIMENTAL -- team-level movement analysis. Not wired into the pipeline
 or the editor: measured on real footage it is not trustworthy enough to ship.
 
+NOTE ON LICENSING -- this module is NOT part of the MIT-licensed core.
+It imports `ultralytics`, which is AGPL-3.0. The import is lazy and the package
+is not in requirements.txt, so a normal install and the shipped app never touch
+it. If you install the optional extra and use this module, the AGPL obligations
+are yours to meet.
+
 Why it is shelved (all measured, 7/16 footage):
   * Detection works -- 11 players found per frame, 99-117px tall.
   * Per-player tracking does NOT -- 11 players fragmented into 109 track IDs

@@ -1,55 +1,73 @@
-# autoPitch — 풋살 자동 하이라이트 파이프라인
+# autoPitch
 
-> (구명: MAHP)
+두 시간짜리 풋살 영상에서 하이라이트만 자동으로 뽑아냅니다.
+경기당 3~5분이면 끝납니다.
 
-동네 풋살 영상(단일캠부터 4캠까지)에서 환호성 오디오 피크와 골망 ROI로 골을 찾아
-자동으로 하이라이트 .mp4를 만드는 로컬 파이썬 파이프라인.
+소리로 찾습니다. 골이 들어가면 사람들이 반응하고, 그 순간 오디오가 튑니다 —
+화면을 볼 필요가 없습니다. 여기에 고정 카메라라는 공짜 정보를 얹어(골대 위치가
+늘 같으니) 컷 시작점을 프레임 단위로 맞춥니다.
 
-## Setup
+- **로컬에서 돕니다.** 촬영본이 어디로도 올라가지 않습니다.
+- **거창한 장비가 필요 없습니다.** 액션캠·휴대폰 한두 대를 펜스에 물리면 됩니다.
+- **골만 모으지 않습니다.** 선방, 아깝게 빗나간 슛 — 시끄러웠던 순간이 다 후보로
+  올라오고, 편집기에서 넣고 뺍니다.
+
+## 어디까지 되는가
+
+정직하게 적습니다. 실측한 것만 씁니다.
+
+| | |
+|---|---|
+| 처리 속도 | 27분 2캠 경기 → 약 2분 |
+| 두 카메라 시각 맞추기 | 현장음 상호상관으로 자동. 메타데이터 없이 맞춘다 (실측: 휴대폰이 68.4초 늦게 시작한 경기에서 두 앵글이 정렬됨) |
+| 반응 지연 | 두 구장 140골 이상에서 소리는 골보다 **중앙값 1.5초 늦게** 터진다. 그만큼 앞으로 당겨서 자른다 |
+| 다른 구장 | 골대 위치만 다시 그리면 그대로 동작 (7/16 새 구장 4경기 검증) |
+
+**안 되는 것** — *아무도 반응하지 않는 골*은 못 잡습니다. 소리가 없으니까요.
+골대 영역의 영상만으로 잡아보려 다섯 가지 방법을 시도했고 전부 실패했습니다
+(그중 하나는 그 구장이 여분 공을 골대 뒤에 놔둬서, "골대 안에 공이 있다"가
+신호가 아니라 상수였습니다). 측면 낮은 각도에선 공이 키퍼와 골대에 가려집니다.
+골대 뒤에 카메라를 하나 더 두면 풀리는 문제입니다.
+
+## 설치
+
+**설치판** — [Releases](https://github.com/anyAXgit/autoPitch/releases)에서
+macOS / Windows 빌드를 받습니다. 실행하면 홈에 `~/autoPitch` 작업 공간이 생기고
+브라우저가 열립니다. 첫 화면이 환경을 점검하고, ffmpeg가 없으면 버튼 하나로
+설치합니다.
+
+> 아직 코드 서명 전입니다. macOS 는 첫 실행에 우클릭 → 열기, Windows 는
+> "추가 정보 → 실행" 이 필요합니다.
+
+**소스에서**
+
 ```bash
+git clone https://github.com/anyAXgit/autoPitch.git
+cd autoPitch
 python3 -m venv .venv
 ./.venv/bin/pip install -r requirements.txt
+./.venv/bin/python autopitch.py          # 브라우저 스튜디오
 ```
 
-## Usage
-1. `data/raw/`에 영상 넣기
-   - 날짜별 권장 구조:
-     ```text
-     data/raw/
-       2026-07-03/
-         cam1/*.MP4
-         cam2/*.MOV
-       2026-07-10/
-         cam1/*.MP4
-         cam2/*.MOV
-     ```
-   - 기존 flat 구조도 지원:
-     ```text
-     data/raw/
-       cam1/*.MP4
-       cam2/*.MOV
-     ```
-   - `cam1`부터 `cam4`까지 지원. 단일캠은 `cam1`만 두면 된다.
-2. 실행:
-   ```bash
-   ./.venv/bin/python main.py
-   ```
-3. 결과: `data/output/highlight_<T>.mp4`, `highlight_all.mp4`, `plan.json`
+ffmpeg 가 따로 필요합니다 (`brew install ffmpeg` / `winget install --id
+Gyan.FFmpeg` / `apt install ffmpeg`).
 
-### 실촬영 다중 경기
-여러 경기 파일이 한 날짜 폴더에 들어 있으면 파일 촬영시각으로 같은 경기의
-카메라들을 페어링한다. 날짜별 폴더가 있으면 날짜마다 경기 1, 2, 3...으로
-분리되고, 기존 `data/raw/cam1`, `data/raw/cam2` 구조는 파일 메타데이터에서
-날짜 라벨을 추론해 하나의 날짜 세션으로 표시한다.
+## 쓰는 법
 
-`run_sessions.py`는 같은 페어링 규칙으로 CLI 렌더를 수행한다.
+1. 촬영본을 `data/raw/<날짜>/cam1`, `cam2` … 에 넣습니다 (단일캠이면 `cam1` 만).
+2. 골대 위치를 한 번 그립니다. 건너뛰어도 됩니다.
+3. `장면 찾기` → 나온 후보를 확인·수정 → 내보내기.
+
+명령줄로도 됩니다:
+
 ```bash
-./.venv/bin/python run_sessions.py --list      # 페어링 미리보기
-./.venv/bin/python run_sessions.py --game 1    # 1경기만
-./.venv/bin/python run_sessions.py --all       # 전 경기 → data/output/game<N>/
+./.venv/bin/python main.py                # data/raw 전체
+./.venv/bin/python run_sessions.py --all  # 날짜별 여러 경기
 ```
 
-## Tuning
+## 더 자세히
+
+### 설정 조정
 `config.yaml`에서 임계값(`threshold_k`), 길이(`min_len_sec`/`max_len_sec`),
 피크 상한(`max_clips`), 크로스페이드, 골 후 마진(`post_goal_sec`) 등 조정.
 
@@ -85,13 +103,13 @@ python3 -m venv .venv
 계획된 모든 이벤트는 `data/train_events.jsonl`에 자동 라벨(오디오 확인 여부)과
 함께 쌓인다 — 데이터가 충분해지면 로컬 tiny 분류 모델 학습용.
 
-## Tests
+### 테스트
 ```bash
 ./.venv/bin/python -m pytest -v
 ```
 실제 영상 없이 합성 더미로 sync/peak/planner/render를 검증한다.
 
-## GUI 스튜디오 (권장)
+### GUI 스튜디오
 루트 설정·골 ROI 캘리브레이션·후보 확인·영상 스크럽 미세편집·렌더를 한 곳에서.
 ```bash
 ./.venv/bin/python gui/server.py        # http://127.0.0.1:8756
@@ -110,7 +128,7 @@ ROI 탭의 `좌우 반전`은 파일별 보기 설정이다. 같은 날짜의 �
 박스를 잡되 좌표는 원본 기준으로 저장하며, 편집 미리보기와 최종 렌더에도 같은
 좌우 반전이 적용된다.
 
-## plan.json & 편집 UI (정적)
+### plan.json · 정적 편집 UI
 편집 결정(컷 in/out·앵글)은 `plan.json`에 데이터로 저장된다.
 `editor/index.html`을 브라우저로 열어 `plan.json`을 로드하면 클립별 포함/제외,
 컷 지점(초) 수정, 순서 변경, (출력 폴더 지정 시) 미리보기를 할 수 있다.
@@ -122,23 +140,20 @@ ROI 탭의 `좌우 반전`은 파일별 보기 설정이다. 같은 날짜의 �
 ## 라이선스
 [MIT](LICENSE) © anyax
 
-의존성 참고:
-- 핵심 파이프라인 의존성(numpy·scipy·librosa·soundfile·PyYAML·Pillow·anthropic)은 모두 허용형(MIT/BSD류).
-- **ffmpeg**은 시스템에 별도 설치해 서브프로세스로 호출한다(코드에 링크·번들하지 않으므로 라이선스가 전이되지 않음).
-- **`tools/kickoff_scan.py`** 는 선택적 실험 프로토타입으로 `ultralytics`(YOLO, **AGPL-3.0**)를 쓴다. 코어 파이프라인은 이를 사용하지 않으며 사용자가 직접 설치해야 한다. 이 도구를 쓰거나 배포하면 해당 부분에 한해 AGPL-3.0 의무가 따른다.
+의존성:
+- 코어는 numpy · scipy · Pillow · PyYAML 뿐이고 전부 허용형(BSD/MIT)이다.
+- **ffmpeg** 은 번들하지 않고 별도 프로세스로 호출한다 — 라이선스가 전이되지
+  않는다. 왜 번들하지 않기로 했는지는 아래 절에 적어 두었다.
+- **`src/player_analysis.py`**, **`tools/kickoff_scan.py`** 는 선택·실험 모듈로
+  `ultralytics`(**AGPL-3.0**)를 쓴다. 코어와 배포 앱은 이를 임포트하지 않고
+  `requirements.txt` 에도 없다. 직접 설치해 쓰는 경우 그 의무는 사용자에게 있다.
+
+기여는 [CONTRIBUTING.md](CONTRIBUTING.md), 변경 내역은
+[CHANGELOG.md](CHANGELOG.md) 를 보세요.
 
 ---
 
-## 설치판 (macOS / Windows)
-
-배포된 앱을 쓰는 경우 파이썬 설치가 필요 없다. 실행하면 홈 폴더에
-`~/autoPitch` 작업 공간을 만들고 브라우저가 열린다.
-
-첫 화면이 환경을 점검한다 — ffmpeg 유무, 필요한 필터, 하드웨어 인코더,
-폴더 권한, 디스크 여유. 문제가 있으면 해결 방법을 그 자리에 보여주고,
-`설치했습니다 · 다시 확인` 버튼으로 재점검한다.
-
-### 직접 빌드
+## 직접 빌드하기
 
 ```bash
 ./.venv/bin/pip install -r requirements-dev.txt

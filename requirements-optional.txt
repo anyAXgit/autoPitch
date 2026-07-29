@@ -1,0 +1,13 @@
+# 선택 기능 전용. 코어 파이프라인은 이게 없어도 완전히 동작한다.
+#
+# ⚠️ ultralytics 는 AGPL-3.0 이다. autoPitch 자체는 MIT 이고 이 패키지를 코어에
+#    포함하지 않는다. 아래를 설치하고 그 기능을 쓰는 순간, 그 사용/배포에 대해
+#    AGPL-3.0 의무를 지는 것은 사용자 본인이다. 특히 네트워크 서비스로 제공하면
+#    소스 공개 의무가 생긴다.
+#
+#    사용처(둘 다 실험/보류 상태):
+#      src/player_analysis.py   팀 단위 히트맵 — 측정 결과 신뢰 불가로 보류
+#      tools/kickoff_scan.py    킥오프 재시작 감지 — 정밀도 27%, 미완성
+#
+# 설치:  pip install -r requirements-optional.txt
+ultralytics>=8.3        # AGPL-3.0

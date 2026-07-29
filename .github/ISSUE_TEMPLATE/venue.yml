@@ -1,0 +1,23 @@
+name: 다른 구장에서 돌려봤습니다
+description: 새로운 촬영 환경에서의 결과 — 가장 반가운 종류의 제보입니다
+labels: [venue-report]
+body:
+  - type: textarea
+    id: setup
+    attributes:
+      label: 촬영 세팅
+      description: 카메라 대수와 위치, 기종, 해상도/프레임
+    validations: { required: true }
+  - type: textarea
+    id: result
+    attributes:
+      label: 결과
+      description: |
+        경기 길이, 실제 골 수, 검출된 후보 수, 그중 맞은 개수.
+        놓친 골이 있다면 어떤 상황이었는지.
+    validations: { required: true }
+  - type: textarea
+    id: tuning
+    attributes:
+      label: 바꾼 설정
+      description: 기본값에서 조정한 것 (탐지 민감도 등)

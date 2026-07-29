@@ -1,0 +1,2 @@
+{"ts": 1767225600, "game": 1, "cam": "cam1", "src": "data/raw/2026-01-01/cam1/CAM1_0001.MP4", "T": 273.5, "audio_confirmed": true, "roi_verdict": null}
+{"ts": 1767225600, "game": 1, "cam": "cam1", "src": "data/raw/2026-01-01/cam1/CAM1_0001.MP4", "T": 912.0, "audio_confirmed": false, "roi_verdict": {"is_goal": false, "confidence": 0.85}}

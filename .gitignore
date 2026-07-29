@@ -30,3 +30,7 @@ node_modules/
 # 설치판 빌드 산출물
 dist/
 packaging/vendor/
+
+# 사용자 데이터 — 촬영본 파일명·시각이 그대로 들어간다
+net_rois.json
+data/train_events.jsonl

@@ -69,9 +69,9 @@ def test_refine_anchor_uses_net_spike(tmp_path):
 
 def test_roi_for_cam_substring_match():
     rois = {"DJI": [0.1, 0.1, 0.2, 0.2], "IMG": [0.5, 0.5, 0.2, 0.2]}
-    assert roi_for_cam("DJI_20260703220255_0064_D", rois) == [0.1, 0.1, 0.2, 0.2]
-    assert roi_for_cam("IMG_8414", rois) == [0.5, 0.5, 0.2, 0.2]
-    assert roi_for_cam("cam1", rois, "/x/data/raw/cam1/DJI_20260703220255_0064_D.MP4") == [0.1, 0.1, 0.2, 0.2]
+    assert roi_for_cam("DJI_20260101120000_0001_D", rois) == [0.1, 0.1, 0.2, 0.2]
+    assert roi_for_cam("IMG_0001", rois) == [0.5, 0.5, 0.2, 0.2]
+    assert roi_for_cam("cam1", rois, "/x/data/raw/cam1/DJI_20260101120000_0001_D.MP4") == [0.1, 0.1, 0.2, 0.2]
     assert roi_for_cam("camX", rois) is None
 
 

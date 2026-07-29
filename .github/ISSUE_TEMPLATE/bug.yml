@@ -1,0 +1,28 @@
+name: 버그 신고
+description: 동작하지 않는 부분
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: 무슨 일이 있었나요
+      description: 기대한 동작과 실제 동작
+    validations: { required: true }
+  - type: textarea
+    id: env
+    attributes:
+      label: 환경
+      description: |
+        설정 화면의 환경 점검 내용을 붙여넣어 주세요 (OS, ffmpeg 버전, 인코더).
+        앱을 못 여는 상황이면 OS 와 `ffmpeg -version` 첫 줄이면 됩니다.
+    validations: { required: true }
+  - type: textarea
+    id: footage
+    attributes:
+      label: 촬영 조건
+      description: 카메라 대수·위치, 해상도/프레임, 실내외, 조명. 영상 자체는 올리지 마세요.
+  - type: textarea
+    id: logs
+    attributes:
+      label: 오류 메시지
+      render: text

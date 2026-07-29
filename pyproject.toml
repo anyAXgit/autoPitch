@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "autopitch"
+version = "0.1.1"
+description = "고정 카메라 풋살 영상에서 하이라이트를 자동으로 뽑는 로컬 파이프라인"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [{ name = "anyax" }]
+keywords = ["video", "highlights", "futsal", "ffmpeg", "audio", "sports"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "Natural Language :: Korean",
+    "Programming Language :: Python :: 3",
+    "Topic :: Multimedia :: Video :: Non-Linear Editor",
+]
+# ffmpeg 는 파이썬 패키지가 아니라 외부 실행파일이다. 앱 첫 화면이 유무를
+# 확인하고 설치를 안내한다.  README 의 "ffmpeg를 왜 번들하지 않는가" 참고.
+dependencies = [
+    "numpy>=1.26",
+    "scipy>=1.11",
+    "Pillow>=10.0",
+    "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+# ⚠️ AGPL-3.0. 코어와 배포 앱은 이걸 쓰지 않는다. requirements-optional.txt 참고.
+analysis = ["ultralytics>=8.3"]
+dev = ["pytest>=8.0", "soundfile>=0.12", "pyinstaller>=6.16"]
+graphics = ["matplotlib>=3.7"]
+
+[project.scripts]
+autopitch = "autopitch:main"
+
+[project.urls]
+Homepage = "https://github.com/anyAXgit/autoPitch"
+Issues = "https://github.com/anyAXgit/autoPitch/issues"
+
+[tool.setuptools]
+packages = ["src", "gui"]
+
+[tool.setuptools.package-data]
+gui = ["app.html"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

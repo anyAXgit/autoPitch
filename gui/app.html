@@ -102,7 +102,7 @@
   .seg{display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:12px;margin:3px 0;}
   .clip.excluded{opacity:.45;}
   .t{color:var(--accent);font-variant-numeric:tabular-nums;}
-  .setup-grid{display:grid;grid-template-columns:1.1fr .9fr;gap:12px;align-items:start;}
+  .setup-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:start;}
   .status-list{display:grid;gap:7px;margin-top:8px;}
   .status-item{display:grid;grid-template-columns:22px 1fr;gap:8px;align-items:start;padding:8px;border:1px solid var(--line);border-radius:8px;background:#141a22;}
   .status-item.ok{border-color:rgba(55,214,122,.55);} .status-item.warn{border-color:rgba(255,197,92,.55);} .status-item.err{border-color:rgba(255,107,107,.6);}
@@ -181,6 +181,12 @@
   .intro{margin:0 0 12px;padding:11px 14px;border:1px solid var(--line);border-radius:10px;
     background:var(--panel);font-size:13px;line-height:1.65;color:#c7d0da;}
   .intro b{color:#e7ebf0;}
+  .tbl-wrap{max-height:300px;overflow:auto;margin-top:8px}
+  .tbl-wrap table{margin:0}
+  .src-card{border:1px solid var(--line);border-radius:8px;padding:8px 9px;background:#11161d}
+  .src-files{color:var(--mut);font-size:11px;line-height:1.5;margin-top:5px;
+    overflow:hidden;text-overflow:ellipsis}
+  td.fn{max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 </style>
 </head>
 <body>
@@ -242,29 +248,35 @@ async function renderCamSources(){
   const cams=s.cameras||{}, counts=s.counts||{};
   const configured=Object.keys(cams).length;
   // 지정하지 않았을 때 실제로 쓰이는 폴더를 그대로 보여준다 — "지정되지 않았습니다"만
-  // 띄우면 아래 목록에 영상이 8개 보이는 것과 모순으로 읽힌다.
-  // 전체 목록의 첫 항목을 쓰면 예전 구조에서 남은 빈 data/raw/cam1 을 집는다.
-  // 지금 선택된 날짜 폴더의 카메라를 봐야 한다.
-  const fallback={};
+  // 띄우면 파일이 보이는 것과 모순으로 읽힌다. 전체 목록의 첫 항목을 쓰면 예전 구조에서
+  // 남은 빈 data/raw/cam1 을 집으므로, 지금 선택된 날짜 폴더의 카메라를 본다.
   const sess=((STATE.setup&&STATE.setup.sessions)||[]);
   const cur=sess.find(x=>x.id===setupSession)||sess.find(x=>x.count>0)||sess[0];
+  const fallback={};
   ((cur&&cur.cameras)||[]).forEach(c=>{ if(!fallback[c.id]) fallback[c.id]=c; });
-  if(camCount===null) camCount=configured||2;
+  if(camCount===null) camCount=configured||Object.keys(fallback).length||2;
   const ids=Array.from({length:camCount},(_,i)=>`cam${i+1}`);
+
   box.innerHTML=`
-    <div class="row"><b>카메라 폴더</b>
+    <div class="row"><b>카메라</b>
       <span class="mut" style="margin-left:auto;font-size:11px">촬영본은 그 자리에서 읽습니다</span></div>
-    <div class="row"><span class="mut">카메라 대수</span>
-      ${[1,2,3,4].map(n=>`<button class="tbtn ${camCount===n?'on':''}" data-n="${n}">${n}대</button>`).join('')}</div>
+    <div class="row"><span class="mut">대수</span>
+      ${[1,2,3,4].map(n=>`<button class="tbtn ${camCount===n?'on':''}" data-n="${n}">${n}</button>`).join('')}
+      ${(!configured&&sess.length>1)?`<span class="mut" style="margin-left:10px">날짜</span>
+        <select id="setupSession">${sess.map(x=>`<option value="${x.id}" ${x.id===setupSession?'selected':''}>${x.label} · ${x.count||0}개</option>`).join('')}</select>`:''}
+    </div>
     <div class="src-list">${ids.map(id=>{
-      const p=cams[id]||''; const n=counts[id];
-      const fb=fallback[id];       // 지정 안 했을 때 실제로 쓰이는 폴더
-      return `<div class="src-row">
-        <b>${id}</b>
-        <span class="src-path ${p?'':'mut'}" title="${p||fb&&fb.path||''}">${
-          p || (fb?fb.path:'아직 없습니다')}</span>
-        <span class="mut src-n">${p?`영상 ${n??0}개`:(fb?`영상 ${fb.count}개`:'')}</span>
-        <button class="tbtn" data-pick="${id}">${p?'변경':'폴더 선택'}</button>
+      const p=cams[id]||''; const fb=fallback[id];
+      const path=p||(fb?fb.path:''); const n=p?(counts[id]??0):(fb?fb.count:0);
+      const files=(fb&&!p)?fb.files:[];
+      return `<div class="src-card">
+        <div class="src-row">
+          <b>${id}</b>
+          <span class="src-path ${path?'':'mut'}" title="${path}">${path||'아직 없습니다'}</span>
+          <span class="mut src-n">${path?`${n}개`:''}</span>
+          <button class="tbtn" data-pick="${id}">${p?'변경':'폴더 선택'}</button>
+        </div>
+        ${files.length?`<div class="src-files">${files.join(' · ')}${n>files.length?` 외 ${n-files.length}개`:''}</div>`:''}
       </div>`;}).join('')}</div>
     ${configured
       ? `<div class="row"><span class="mut" style="font-size:11px;flex:1">직접 지정한 폴더를 쓰는 중입니다.</span>
@@ -278,7 +290,7 @@ async function renderCamSources(){
   box.querySelectorAll('[data-pick]').forEach(b=>b.onclick=async()=>{
     const id=b.dataset.pick;
     try{
-      const p=await pickDirGlobal(cams[id]||'');
+      const p=await pickDirGlobal(cams[id]||(fallback[id]&&fallback[id].path)||'');
       if(!p)return;
       const next={...cams,[id]:p};
       Object.keys(next).forEach(k=>{if(!ids.includes(k))delete next[k];});
@@ -287,6 +299,8 @@ async function renderCamSources(){
       await loadState();
     }catch(e){alert(e.message);}
   });
+  const sel=$('#setupSession');
+  if(sel) sel.onchange=e=>{setupSession=e.target.value;window._edSession=setupSession;renderSetup();};
   const clr=$('#srcClear');
   if(clr) clr.onclick=async()=>{
     await api('/api/sources',{method:'POST',headers:{'Content-Type':'application/json'},
@@ -544,6 +558,7 @@ function renderSetup(){
     {ok:allGames.length>0,warn:allFiles>0&&!allGames.length,title:'경기 감지',desc:allGames.length?`${allGames.length}개 경기를 편집할 수 있습니다.`:(allFiles?'영상은 있지만 아직 경기로 묶지 못했습니다. 여러 카메라 촬영본은 촬영시각 메타데이터가 필요합니다.':'영상이 들어오면 여기에 경기 목록이 표시됩니다.')},
   ];
   const blocking=(STATE.preflight&&STATE.preflight.blocking)||[];
+  const cur=ss.find(x=>x.id===setupSession)||ss.find(x=>x.count>0)||ss[0];
   const next=blocking.length
     ? {title:'먼저 준비할 것이 있습니다',
        desc:(STATE.preflight.checks.filter(c=>!c.ok)
@@ -564,54 +579,49 @@ function renderSetup(){
       두 시간을 다 볼 필요가 없습니다. 카메라를 고정해 두면 골대 위치까지 알 수 있어 컷 시작점도
       정확해집니다. <span class="mut">영상은 이 컴퓨터 밖으로 나가지 않습니다.</span>
     </div>
+
+    <!-- 지금 할 일은 폭을 다 써서 맨 위에. 좌우 열은 그 아래에서 균형을 맞춘다. -->
+    <div class="card next-card ${next.actions==='ready'?'ready':''}">
+      <div class="status-title big">${next.title}</div>
+      <div class="status-desc">${next.desc}</div>
+      ${next.actions==='prepare'?`<div class="choice">
+        ${[1,2,3,4].map(n=>`<button class="tbtn ${setupCamCount===n?'on':''}" data-cams="${n}">${n}대 촬영</button>`).join('')}
+        <button class="btn primary" id="prepFolders">작업 공간 준비</button>
+        ${cams.length?`<button class="btn" id="openRaw">영상 폴더 열기</button>`:''}
+      </div>`:''}
+      ${next.actions==='ready'?`<div class="choice">
+        <button class="btn primary big" id="goEdit">편집으로 이동</button>
+        <button class="btn" id="goCal">골대 위치 잡기</button>
+        <button class="btn" id="openRaw2">영상 폴더 열기</button>
+      </div>`:''}
+      ${next.actions==='refresh'?`<div class="choice"><button class="btn primary" id="refreshOnly">다시 확인</button></div>`:''}
+      ${next.actions==='recheck'?`<div class="choice">
+        ${blocking.includes('ffmpeg')?`<button class="btn primary" id="installFf">ffmpeg 설치하기</button>`:''}
+        <button class="btn" id="recheckEnv">직접 설치했습니다 · 다시 확인</button>
+      </div><pre class="inst-log" id="instLog" hidden></pre>`:''}
+    </div>
+
+    ${next.actions==='ready'?'':`<div class="card">
+      <div class="row"><b>이렇게 진행됩니다</b><span class="mut">2시간 영상 기준 경기당 3~5분 정도 걸립니다.</span></div>
+      <div class="steps3">
+        <div><b>1</b> 카메라별로 <b>촬영본이 들어 있는 폴더</b>를 지정합니다. <span class="mut">복사하지 않고 그 자리에서 읽습니다.</span></div>
+        <div><b>2</b> 골대가 화면 어디인지 한 번 그려줍니다. <span class="mut">(건너뛰어도 됩니다)</span></div>
+        <div><b>3</b> 자동으로 찾은 장면을 확인·수정하고 내보냅니다.</div>
+      </div>
+    </div>`}
+
     <div class="setup-grid">
       <div>
-        <!-- 지금 뭘 해야 하는지가 항상 첫 번째 — ✓ 목록 아래에 두면 스크롤해야 보인다 -->
-        <div class="card next-card ${next.actions==='ready'?'ready':''}">
-          <div class="status-title big">${next.title}</div>
-          <div class="status-desc">${next.desc}</div>
-          ${next.actions==='prepare'?`<div class="choice">
-            ${[1,2,3,4].map(n=>`<button class="tbtn ${setupCamCount===n?'on':''}" data-cams="${n}">${n}대 촬영</button>`).join('')}
-            <button class="btn primary" id="prepFolders">작업 공간 준비</button>
-            ${cams.length?`<button class="btn" id="openRaw">영상 폴더 열기</button>`:''}
-          </div>`:''}
-          ${next.actions==='ready'?`<div class="choice">
-            <button class="btn primary big" id="goEdit">편집으로 이동</button>
-            <button class="btn" id="goCal">골대 위치 잡기</button>
-            <button class="btn" id="openRaw2">영상 폴더 열기</button>
-          </div>`:''}
-          ${next.actions==='refresh'?`<div class="choice"><button class="btn primary" id="refreshOnly">다시 확인</button></div>`:''}
-          ${next.actions==='recheck'?`<div class="choice">
-            ${blocking.includes('ffmpeg')?`<button class="btn primary" id="installFf">ffmpeg 설치하기</button>`:''}
-            <button class="btn" id="recheckEnv">직접 설치했습니다 · 다시 확인</button>
-          </div><pre class="inst-log" id="instLog" hidden></pre>`:''}
-        </div>
-
-        ${next.actions==='ready'?'':`<div class="card">
-          <div class="row"><b>이렇게 진행됩니다</b><span class="mut">2시간 영상 기준 경기당 3~5분 정도 걸립니다.</span></div>
-          <div class="steps3">
-            <div><b>1</b> 카메라별로 <b>촬영본이 들어 있는 폴더</b>를 지정합니다. <span class="mut">복사하지 않고 그 자리에서 읽습니다.</span></div>
-            <div><b>2</b> 골대가 화면 어디인지 한 번 그려줍니다. <span class="mut">(건너뛰어도 됩니다)</span></div>
-            <div><b>3</b> 자동으로 찾은 장면을 확인·수정하고 내보냅니다.</div>
-          </div>
-        </div>`}
-
-        <details class="card" ${next.actions==='ready'?'':'open'}>
-          <summary><b>작업 폴더 · 환경 점검</b> <span class="mut">${blocking.length?`문제 ${blocking.length}건`:'모두 정상'}</span></summary>
-          <div class="row" style="margin-top:8px"><span class="mut" style="flex:1;font-size:12px">설정·결과물이 저장되는 곳입니다. 촬영본은 여기 없어도 됩니다.</span></div>
-          <div class="row"><input id="rootIn" style="flex:1" value="${STATE.root}" readonly>
-            <button class="btn" id="pickRoot">폴더 선택</button>
-            <button class="btn" id="reloadState">새로고침</button></div>
-          <div class="status-list">
-            ${status.map(s=>`<div class="status-item ${s.ok?'ok':(s.warn?'warn':'err')}">
-              <div class="status-ico">${s.ok?'✓':(s.warn?'!':'·')}</div>
-              <div><div class="status-title">${s.title}</div><div class="status-desc">${s.desc}</div></div>
-            </div>`).join('')}
-          </div>
-        </details>
+        <div class="card" id="camSourcesCard"></div>
       </div>
       <div>
-        <div class="card" id="camSourcesCard"></div>
+        <div class="card">
+          <div class="row"><b>감지된 경기</b>
+            <span class="mut" style="margin-left:auto">${cur?cur.label+' · ':''}${g.length}경기 · ${STATE.rois_exists?'골대 위치 저장됨':'골대 위치 미설정'}</span></div>
+          ${g.length?`<div class="tbl-wrap"><table><tr><th>#</th>${camHeaders}<th>길이</th></tr>
+            ${g.map(x=>{const gc=gameCams(x);return `<tr><td>${gameNo(x)}</td>${Array.from({length:maxCams},(_,i)=>`<td class="fn" title="${gc[i]?gc[i].path.split('/').pop():''}">${gc[i]?gc[i].path.split('/').pop():''}</td>`).join('')}<td>${mmss(x.overlap)}</td></tr>`;}).join('')}</table></div>`
+            :'<div class="mut">아직 편집 가능한 경기가 없습니다.</div>'}
+        </div>
         <div class="card" id="settingsCard"></div>
         <div class="modal-back" id="setModal" hidden>
           <div class="modal" style="width:min(620px,calc(100vw - 24px))">
@@ -622,18 +632,19 @@ function renderSetup(){
               <button class="btn primary" id="setSave" disabled>저장</button></div>
           </div>
         </div>
-        <div class="card">
-          <div class="row"><b>카메라 입력</b><span class="mut">${totalFiles}개 파일 · 전체 ${allFiles}개</span></div>
-          ${ss.length>1?`<div class="row"><span class="mut">날짜 폴더</span><select id="setupSession">${ss.map(s=>`<option value="${s.id}" ${s.id===setupSession?'selected':''}>${s.label} · 영상 ${s.count||0}개</option>`).join('')}</select></div>`:''}
-          ${cams.length?`<div class="cam-grid">${cams.map(c=>`<div class="cam-box"><b>${c.id}</b><div>${c.count}개 영상</div><div class="files">${c.files.length?c.files.join('<br>'):'비어 있음'}</div></div>`).join('')}</div>`
-            :'<div class="mut">아직 카메라 폴더가 없습니다. 오른쪽 위에서 카메라별 폴더를 지정하세요.</div>'}
-        </div>
-        <div class="card">
-          <div class="row"><b>감지된 경기</b> ${STATE.rois_exists?'<span class="mut">ROI 저장됨</span>':'<span class="mut">ROI 미설정</span>'}</div>
-          ${g.length?`<table><tr><th>날짜</th><th>경기</th>${camHeaders}<th>겹침</th></tr>
-            ${g.map(x=>{const gc=gameCams(x);return `<tr><td>${x.session_label||'기본'}</td><td>${gameNo(x)}</td>${Array.from({length:maxCams},(_,i)=>`<td>${gc[i]?gc[i].path.split('/').pop():''}</td>`).join('')}<td>${mmss(x.overlap)}</td></tr>`;}).join('')}</table>`
-            :'<div class="mut">아직 편집 가능한 경기가 없습니다.</div>'}
-        </div>
+        <details class="card" ${next.actions==='ready'?'':'open'}>
+          <summary><b>작업 폴더 · 환경 점검</b> <span class="mut">${blocking.length?`문제 ${blocking.length}건`:'모두 정상'}</span></summary>
+          <div class="mut" style="font-size:12px;margin:8px 0 6px">설정·결과물이 저장되는 곳입니다. 촬영본은 여기 없어도 됩니다.</div>
+          <div class="row"><input id="rootIn" style="flex:1" value="${STATE.root}" readonly>
+            <button class="btn" id="pickRoot">폴더 선택</button>
+            <button class="btn" id="reloadState">새로고침</button></div>
+          <div class="status-list">
+            ${status.map(s=>`<div class="status-item ${s.ok?'ok':(s.warn?'warn':'err')}">
+              <div class="status-ico">${s.ok?'✓':(s.warn?'!':'·')}</div>
+              <div><div class="status-title">${s.title}</div><div class="status-desc">${s.desc}</div></div>
+            </div>`).join('')}
+          </div>
+        </details>
       </div>
     </div>`;
   const refresh=async()=>{await loadState();};

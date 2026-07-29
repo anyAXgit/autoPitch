@@ -19,6 +19,10 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 if HERE not in sys.path:
     sys.path.insert(0, HERE)
 
+from src.console import enable_utf8
+
+enable_utf8()      # before the first print -- a Windows console is not UTF-8
+
 DEFAULT_PORT = 8756
 
 

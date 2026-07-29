@@ -8,6 +8,9 @@ from src.segment_planner import build_plan
 from src.video_editor import render_plan
 from src.frame_extractor import extract_goal_frames
 from src.goal_confirmer import label_goals, make_vlm_classifier
+from src.console import enable_utf8
+
+enable_utf8()
 
 TEMP_VIDEO = "data/temp_video"
 TEMP_AUDIO = "data/temp_audio"

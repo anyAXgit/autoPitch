@@ -28,7 +28,10 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 PROJ = os.path.dirname(HERE)
 sys.path.insert(0, PROJ)
 
+from src.console import enable_utf8  # noqa: E402
 from src.ffmpeg import ffmpeg as _ffmpeg_bin, ffprobe as _ffprobe  # noqa: E402
+
+enable_utf8()
 
 STATE = {"root": PROJ}
 

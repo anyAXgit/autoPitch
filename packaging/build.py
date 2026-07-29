@@ -16,6 +16,11 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
+sys.path.insert(0, ROOT)
+
+from src.console import enable_utf8  # noqa: E402
+
+enable_utf8()
 VENDOR = os.path.join(HERE, "vendor", "bin")
 
 

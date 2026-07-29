@@ -20,6 +20,9 @@ import subprocess
 from datetime import datetime, timezone
 
 from main import run
+from src.console import enable_utf8
+
+enable_utf8()
 
 CAM1_DIR = "data/raw/cam1"
 CAM2_DIR = "data/raw/cam2"

@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    # Windows is not a formality here: the concat-demuxer path handling and the
+    # UTF-8 file IO only differ on Windows, and a Mac-only CI would never catch
+    # a regression in either.
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.12 is what the installers are built against; 3.14 is what the
+        # project is developed on, so both need to stay green.
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python: ['3.12']
+        include:
+          - os: ubuntu-latest
+            python: '3.14'
+    runs-on: ${{ matrix.os }}
+    name: test (${{ matrix.os }}, py${{ matrix.python }})
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Install ffmpeg (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Install ffmpeg (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ffmpeg
+
+      - name: Install ffmpeg (Windows)
+        if: runner.os == 'Windows'
+        run: choco install ffmpeg -y --no-progress
+
+      - name: Verify ffmpeg has the filters we depend on
+        run: ffmpeg -hide_banner -filters | grep -E "xfade|acrossfade"
+        shell: bash
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Run tests
+        run: pytest -q
+
+      - name: Environment preflight
+        # Same checks a first-run user sees. Never fails the build -- it is here
+        # so a broken runner image is visible in the log rather than as a
+        # confusing test failure downstream.
+        run: python -c "import json,sys; sys.path.insert(0,'.'); from src.preflight import run; print(json.dumps(run('.'), ensure_ascii=False, indent=1))"
+        continue-on-error: true

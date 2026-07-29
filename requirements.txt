@@ -1,7 +1,9 @@
 numpy>=1.26
-scipy>=1.11
-librosa>=0.10
-soundfile>=0.12
+scipy>=1.11         # sync_engine 상호상관 · ball_frames 필터
 Pillow>=10.0        # GOAL 라벨 오버레이(src/video_editor) 렌더
 PyYAML>=6.0
 pytest>=8.0
+
+# 오디오 디코딩·RMS는 ffmpeg + numpy 로 직접 처리한다(src/audio.py).
+# librosa/soundfile 을 쓰면 numba·llvmlite 가 딸려오는데, 이게 .app/.exe 로
+# 묶을 때 가장 큰 걸림돌이라 뺐다. librosa 대비 결과 동일, 디코딩 12배 빠름.

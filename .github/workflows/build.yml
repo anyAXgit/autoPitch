@@ -1,0 +1,122 @@
+name: Build installers
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      vendor_ffmpeg:
+        description: 'ffmpeg 를 앱에 포함 (GPL 의무 발생 — 아래 주석 확인)'
+        type: boolean
+        default: false
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            name: macos-arm64
+          - os: windows-latest
+            name: windows-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      # ffmpeg is needed to RUN the tests, and optionally to vendor into the
+      # bundle. Vendoring is opt-in: a libx264-enabled ffmpeg is GPL, so
+      # shipping it obliges us to include its licence and a source offer. The
+      # default build resolves ffmpeg from PATH and the first-run screen tells
+      # the user how to install it.
+      - name: Install ffmpeg (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ffmpeg
+
+      - name: Install ffmpeg (Windows)
+        if: runner.os == 'Windows'
+        run: choco install ffmpeg -y --no-progress
+
+      - name: Smoke test before packaging
+        run: pytest -q
+
+      - name: Build (ffmpeg 미포함)
+        if: ${{ !inputs.vendor_ffmpeg }}
+        run: python packaging/build.py --clean
+
+      - name: Build (ffmpeg 포함)
+        if: ${{ inputs.vendor_ffmpeg }}
+        shell: bash
+        run: |
+          python packaging/build.py --clean \
+            --vendor-ffmpeg "$(command -v ffmpeg)" "$(command -v ffprobe)"
+
+      - name: Verify the packaged app actually starts
+        shell: bash
+        run: |
+          set -e
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            BIN="dist/autoPitch.app/Contents/MacOS/autoPitch"
+          else
+            BIN="dist/autoPitch/autoPitch.exe"
+          fi
+          "$BIN" --root "$RUNNER_TEMP/ws" --port 8799 --no-browser &
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:8799/api/preflight > preflight.json; then break; fi
+            sleep 2
+          done
+          cat preflight.json
+          python -c "import json;d=json.load(open('preflight.json'));print('blocking:',d['blocking']);raise SystemExit(1 if d['blocking'] else 0)"
+          test -f "$RUNNER_TEMP/ws/config.yaml"
+
+      - name: Package artifact
+        shell: bash
+        run: |
+          cd dist
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            # ditto preserves the bundle's symlinks and permission bits; zip does not.
+            ditto -c -k --keepParent autoPitch.app "autoPitch-${{ matrix.name }}.zip"
+          else
+            7z a "autoPitch-${{ matrix.name }}.zip" autoPitch
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: autoPitch-${{ matrix.name }}
+          path: dist/autoPitch-${{ matrix.name }}.zip
+          retention-days: 14
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*.zip
+          generate_release_notes: true
+          body: |
+            ### 설치
+
+            압축을 풀고 실행하면 홈 폴더에 `~/autoPitch` 작업 공간이 생기고
+            브라우저가 열립니다. 첫 화면이 환경(ffmpeg 등)을 점검하고 필요한
+            설치 방법을 안내합니다.
+
+            **ffmpeg 미포함 빌드입니다.** 없으면 첫 화면 안내대로 설치해 주세요:
+            `brew install ffmpeg` (macOS) / `winget install --id Gyan.FFmpeg` (Windows)
+
+            macOS 는 서명되지 않은 앱이라 첫 실행 시 우클릭 → 열기 가 필요합니다.

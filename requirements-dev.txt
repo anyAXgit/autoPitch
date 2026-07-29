@@ -1,0 +1,4 @@
+# 개발·테스트 전용. 배포판(.app/.exe)에는 들어가지 않는다.
+-r requirements.txt
+soundfile>=0.12     # 테스트가 합성 WAV 를 만들 때만 사용
+pyinstaller>=6.16   # 설치판 빌드

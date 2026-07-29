@@ -23,3 +23,10 @@ docs/broll/graphics/*.mov
 build/
 docs/broll/clips/*.mp4
 court_quads.json
+
+# Node (remotion/ scaffold — kept for the next project)
+node_modules/
+
+# 설치판 빌드 산출물
+dist/
+packaging/vendor/

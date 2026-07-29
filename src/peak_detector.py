@@ -1,12 +1,12 @@
 import numpy as np
-import librosa
+
+from src.audio import block_rms, load
 
 
 def rms_db(path, window_sec, sr=16000):
-    y, _ = librosa.load(path, sr=sr, mono=True)
+    y = load(path, sr)
     hop = max(1, int(window_sec * sr))
-    frame = hop
-    rms = librosa.feature.rms(y=y, frame_length=frame, hop_length=hop)[0]
+    rms = block_rms(y, hop)
     db = 20.0 * np.log10(rms + 1e-8)
     times = np.arange(len(db)) * hop / sr
     return times, db

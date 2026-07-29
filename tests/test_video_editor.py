@@ -47,7 +47,10 @@ def test_render_plan_checks_ffmpeg_filters(tmp_path, monkeypatch):
             self.returncode = 0
 
     def fake_run(args, **kwargs):
-        assert args[:3] == ["ffmpeg", "-hide_banner", "-filters"], (
+        # args[0] is a resolved path (a bundled binary in a packaged build),
+        # so match on the program name rather than the literal string.
+        assert (os.path.basename(args[0]).startswith("ffmpeg")
+                and args[1:3] == ["-hide_banner", "-filters"]), (
             "test only stubs the -filters probe; real ffmpeg calls should "
             "never be reached because the guard must raise first"
         )

@@ -15,6 +15,7 @@ import subprocess
 
 import numpy as np
 from scipy import ndimage
+from src.ffmpeg import ffmpeg, ffprobe
 
 
 def _decode_window(source, t0, dur, roi, fps=6.0, width=256, margin=0.35):
@@ -25,11 +26,11 @@ def _decode_window(source, t0, dur, roi, fps=6.0, width=256, margin=0.35):
     vf = (f"crop=iw*{x1-x0:.5f}:ih*{y1-y0:.5f}:iw*{x0:.5f}:ih*{y0:.5f},"
           f"scale={width}:-2,fps={fps}")
     out = subprocess.run(
-        ["ffmpeg", "-v", "error", "-ss", str(max(0.0, t0)), "-i", source,
+        [ffmpeg(), "-v", "error", "-ss", str(max(0.0, t0)), "-i", source,
          "-t", str(dur), "-vf", vf, "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
         capture_output=True, check=True).stdout
     probe = subprocess.run(
-        ["ffprobe", "-v", "error", "-select_streams", "v:0",
+        [ffprobe(), "-v", "error", "-select_streams", "v:0",
          "-show_entries", "stream=width,height", "-of", "json", source],
         capture_output=True, text=True).stdout
     ar = json.loads(probe)["streams"][0]

@@ -2,12 +2,7 @@ import os
 import json
 import subprocess
 
-
-def _ffmpeg(args):
-    subprocess.run(
-        ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", *args],
-        check=True,
-    )
+from src.ffmpeg import concat_path, ffmpeg, ffprobe, h264_args, run as _ffmpeg
 
 
 def _ensure_filters():
@@ -16,7 +11,7 @@ def _ensure_filters():
     ffmpeg build silently lacks these, which otherwise surfaces as an opaque
     CalledProcessError deep into a multi-hour render. Fail fast instead."""
     out = subprocess.run(
-        ["ffmpeg", "-hide_banner", "-filters"],
+        [ffmpeg(), "-hide_banner", "-filters"],
         capture_output=True, text=True, check=True,
     )
     listing = out.stdout
@@ -28,47 +23,9 @@ def _ensure_filters():
         )
 
 
-_HW_H264 = None
-
-
-def _hw_available():
-    """True when Apple VideoToolbox H.264 is listed and can actually encode.
-
-    Some headless/test contexts expose `h264_videotoolbox` in `ffmpeg -encoders`
-    but fail to create a compression session. Probe a tiny in-memory encode so
-    render jobs can fall back to libx264 before doing real work.
-    """
-    global _HW_H264
-    if _HW_H264 is None:
-        out = subprocess.run(["ffmpeg", "-hide_banner", "-encoders"],
-                             capture_output=True, text=True, check=True)
-        if "h264_videotoolbox" not in out.stdout:
-            _HW_H264 = False
-        else:
-            probe = subprocess.run([
-                "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
-                "-f", "lavfi", "-i", "color=c=black:s=320x180:d=0.1:r=30",
-                "-frames:v", "1",
-                "-c:v", "h264_videotoolbox", "-b:v", "1M", "-allow_sw", "1",
-                "-f", "null", "-",
-            ], capture_output=True, text=True)
-            _HW_H264 = probe.returncode == 0
-    return _HW_H264
-
-
-def h264_args(hw=True):
-    """Encoder args for the H.264 outputs. VideoToolbox (Apple HW) measured ~2x
-    faster than libx264 on this workload (HEVC decode dominates); falls back to
-    libx264 when unavailable or when hw=False (config hw_encode)."""
-    if hw and _hw_available():
-        return ["-c:v", "h264_videotoolbox", "-b:v", "10M", "-allow_sw", "1",
-                "-pix_fmt", "yuv420p"]
-    return ["-c:v", "libx264", "-pix_fmt", "yuv420p"]
-
-
 def probe_duration(path):
     out = subprocess.run(
-        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+        [ffprobe(), "-v", "error", "-show_entries", "format=duration",
          "-of", "default=noprint_wrappers=1:nokey=1", path],
         capture_output=True, text=True, check=True,
     )
@@ -119,9 +76,9 @@ def render_clip(clip, fps, crossfade_sec, work_dir, out_path, width, height, var
     elif crossfade_sec <= 0.01:
         # hard cut: segments share codec/canvas, so a re-encode concat is enough
         listfile = os.path.join(work_dir, "segs.txt")
-        with open(listfile, "w") as f:
+        with open(listfile, "w", encoding="utf-8") as f:
             for p in seg_paths:
-                f.write(f"file '{os.path.abspath(p)}'\n")
+                f.write(f"file '{concat_path(p)}'\n")
         _ffmpeg(["-f", "concat", "-safe", "0", "-i", listfile,
                  *vargs, "-c:a", "aac", assembled])
     else:
@@ -237,15 +194,15 @@ def render_plan(plan, output_dir, bgm_path=None, bgm_volume=0.15, on_clip=None):
             on_clip(i + 1, len(plan["clips"]), out_path)
 
     # write plan.json alongside outputs (editor contract / future UI)
-    with open(os.path.join(output_dir, "plan.json"), "w") as f:
+    with open(os.path.join(output_dir, "plan.json"), "w", encoding="utf-8") as f:
         json.dump(plan, f, indent=2)
 
     # concat all clips into highlight_all.mp4
     if clip_paths:
         listfile = os.path.join(output_dir, "concat.txt")
-        with open(listfile, "w") as f:
+        with open(listfile, "w", encoding="utf-8") as f:
             for p in clip_paths:
-                f.write(f"file '{os.path.abspath(p)}'\n")
+                f.write(f"file '{concat_path(p)}'\n")
         all_path = os.path.join(output_dir, "highlight_all.mp4")
         _ffmpeg([
             "-f", "concat", "-safe", "0", "-i", listfile,

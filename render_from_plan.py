@@ -23,7 +23,7 @@ def main():
     ap.add_argument("--bgm-volume", type=float, default=0.15)
     args = ap.parse_args()
 
-    with open(args.plan) as f:
+    with open(args.plan, encoding="utf-8") as f:
         plan = json.load(f)
     if not plan.get("clips"):
         raise SystemExit("plan has no clips to render.")

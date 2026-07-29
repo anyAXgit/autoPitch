@@ -1,11 +1,12 @@
 import os
 import glob
 import subprocess
+from src.ffmpeg import ffmpeg
 
 
 def _ffmpeg(args):
     subprocess.run(
-        ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", *args],
+        [ffmpeg(), "-y", "-hide_banner", "-loglevel", "error", *args],
         check=True,
     )
 

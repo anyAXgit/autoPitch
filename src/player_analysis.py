@@ -35,6 +35,7 @@ import os
 import subprocess
 
 import numpy as np
+from src.ffmpeg import ffmpeg
 
 GRID_H, GRID_W = 36, 64          # heatmap resolution (image space)
 
@@ -68,7 +69,7 @@ def to_court(pts, H):
 def _frames(source, start, dur, fps, width, out_dir):
     """Decode a window to JPGs (decode-only, no re-encode)."""
     os.makedirs(out_dir, exist_ok=True)
-    subprocess.run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+    subprocess.run([ffmpeg(), "-y", "-hide_banner", "-loglevel", "error",
                     "-ss", str(max(0.0, start)), "-i", source, "-t", str(dur),
                     "-vf", f"fps={fps},scale={width}:-2", "-an",
                     os.path.join(out_dir, "f_%05d.jpg")], check=True)

@@ -13,6 +13,7 @@ evidence).
 import base64
 import json
 import os
+from src.ffmpeg import ffmpeg
 
 _PROMPT = (
     "These are consecutive frames (a few seconds) from one fixed low corner "
@@ -136,7 +137,7 @@ def net_crops(source, t, roi, out_dir, margin=0.6):
     paths = []
     for i, ts in enumerate(moments):
         p = os.path.join(out_dir, f"net_{t:.1f}_{i}.jpg")
-        subprocess.run(["ffmpeg", "-y", "-v", "error", "-ss", str(ts),
+        subprocess.run([ffmpeg(), "-y", "-v", "error", "-ss", str(ts),
                         "-i", source, "-frames:v", "1", "-vf", vf, p], check=True)
         paths.append(p)
     return paths

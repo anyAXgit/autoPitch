@@ -126,3 +126,36 @@ ROI 탭의 `좌우 반전`은 파일별 보기 설정이다. 같은 날짜의 �
 - 핵심 파이프라인 의존성(numpy·scipy·librosa·soundfile·PyYAML·Pillow·anthropic)은 모두 허용형(MIT/BSD류).
 - **ffmpeg**은 시스템에 별도 설치해 서브프로세스로 호출한다(코드에 링크·번들하지 않으므로 라이선스가 전이되지 않음).
 - **`tools/kickoff_scan.py`** 는 선택적 실험 프로토타입으로 `ultralytics`(YOLO, **AGPL-3.0**)를 쓴다. 코어 파이프라인은 이를 사용하지 않으며 사용자가 직접 설치해야 한다. 이 도구를 쓰거나 배포하면 해당 부분에 한해 AGPL-3.0 의무가 따른다.
+
+---
+
+## 설치판 (macOS / Windows)
+
+배포된 앱을 쓰는 경우 파이썬 설치가 필요 없다. 실행하면 홈 폴더에
+`~/autoPitch` 작업 공간을 만들고 브라우저가 열린다.
+
+첫 화면이 환경을 점검한다 — ffmpeg 유무, 필요한 필터, 하드웨어 인코더,
+폴더 권한, 디스크 여유. 문제가 있으면 해결 방법을 그 자리에 보여주고,
+`설치했습니다 · 다시 확인` 버튼으로 재점검한다.
+
+### 직접 빌드
+
+```bash
+./.venv/bin/pip install -r requirements-dev.txt
+./.venv/bin/python packaging/build.py --clean
+```
+
+결과는 `dist/`에 생긴다 (macOS `autoPitch.app`, Windows `autoPitch.exe`).
+PyInstaller는 크로스 컴파일을 못 하므로 각 OS에서 따로 빌드해야 한다.
+
+**ffmpeg 포함 여부** — 기본 빌드는 ffmpeg를 넣지 않고 PATH에서 찾는다.
+없으면 첫 화면이 설치 방법(`brew install ffmpeg` / `winget install --id
+Gyan.FFmpeg`)을 안내한다. 자체 포함하려면:
+
+```bash
+./.venv/bin/python packaging/build.py --vendor-ffmpeg $(which ffmpeg) $(which ffprobe)
+```
+
+libx264가 포함된 ffmpeg 빌드는 GPL이다. 재배포하면 해당 바이너리에 대한
+GPL 의무(라이선스 전문·소스 제공)를 지게 된다. 이 프로젝트 코드는 별도
+프로세스로 호출하므로 MIT를 유지한다.

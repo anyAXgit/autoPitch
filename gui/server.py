@@ -28,6 +28,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 PROJ = os.path.dirname(HERE)
 sys.path.insert(0, PROJ)
 
+from src.ffmpeg import ffmpeg as _ffmpeg_bin, ffprobe as _ffprobe  # noqa: E402
+
 STATE = {"root": PROJ}
 
 
@@ -97,7 +99,7 @@ def _probe(path):
 
     def q(entries):
         out = subprocess.run(
-            ["ffprobe", "-v", "error", "-show_entries", entries,
+            [_ffprobe(), "-v", "error", "-show_entries", entries,
              "-of", "default=nk=1:nw=1", path],
             capture_output=True, text=True, check=True,
         )
@@ -228,7 +230,7 @@ def load_view_settings():
     p = _view_settings_path()
     if not os.path.exists(p):
         return {"flips": {}}
-    with open(p) as f:
+    with open(p, encoding="utf-8") as f:
         data = json.load(f)
     data.setdefault("flips", {})
     return data
@@ -242,7 +244,7 @@ def save_view_settings(data):
     if not isinstance(flips, dict):
         flips = {}
     data["flips"] = {str(k): True for k, v in flips.items() if v}
-    with open(p, "w") as f:
+    with open(p, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
     return data
 
@@ -381,7 +383,7 @@ def cached_plan(game):
     newest_dep = max((os.path.getmtime(d) for d in deps if os.path.exists(d)), default=0)
     if os.path.getmtime(p) < newest_dep:
         return None
-    with open(p) as f:
+    with open(p, encoding="utf-8") as f:
         plan = json.load(f)
     if os.path.exists(os.path.join(STATE["root"], "net_rois.json")) and not plan.get("locate_enabled"):
         return None
@@ -396,7 +398,7 @@ def _api_key(root):
         return True
     p = os.path.join(root, "data", "_gui", "anthropic_key.txt")
     if os.path.exists(p):
-        with open(p) as f:
+        with open(p, encoding="utf-8") as f:
             key = f.read().strip()
         if key:
             os.environ["ANTHROPIC_API_KEY"] = key
@@ -500,7 +502,7 @@ def compute_plan(game, on_step=None):
     # planned event is a labeled example (audio-confirmed vs ROI-only).
     try:
         import time
-        with open(os.path.join(root, "data", "train_events.jsonl"), "a") as f:
+        with open(os.path.join(root, "data", "train_events.jsonl"), "a", encoding="utf-8") as f:
             # kept clips AND judge-rejected ROI events (negatives matter most)
             for c in plan["clips"] + plan.get("roi_rejected", []):
                 f.write(json.dumps({
@@ -516,29 +518,42 @@ def compute_plan(game, on_step=None):
     plan.pop("roi_rejected", None)   # logged; keep the cached plan lean
 
     step(7, 7, "분석 결과 저장 중")
-    with open(_plan_cache_path(game), "w") as f:
+    with open(_plan_cache_path(game), "w", encoding="utf-8") as f:
         json.dump(plan, f)
     return plan
 
 
 def wave_env(rel, t0, t1, n):
-    """Peak envelope of a WAV window, normalized 0..1, for timeline waveforms."""
+    """Peak envelope of an audio window, normalized 0..1, for timeline waveforms.
+
+    Decoding only the requested window through ffmpeg keeps this off soundfile
+    (one less binary wheel to freeze) and off the whole-file read.
+    """
     import numpy as np
-    import soundfile as sf
+    from src.audio import load
     full = within_root(rel)
-    info = sf.info(full)
-    sr = info.samplerate
-    a = max(0, int(t0 * sr))
-    b = min(info.frames, int(t1 * sr))
-    if b <= a:
+    if t1 <= t0:
         return []
-    y = sf.read(full, start=a, stop=b, dtype="float32", always_2d=True)[0].mean(axis=1)
+    sr = 8000                      # envelope only -- no need for full fidelity
+    y = _decode_window(full, t0, t1 - t0, sr)
+    if not len(y):
+        return []
     n = max(10, min(int(n), 2000))
     idx = np.linspace(0, len(y), n + 1).astype(int)
     peaks = [float(np.abs(y[idx[i]:idx[i + 1]]).max()) if idx[i + 1] > idx[i] else 0.0
              for i in range(n)]
     m = max(peaks) or 1.0
     return [round(p / m, 3) for p in peaks]
+
+
+def _decode_window(path, start, dur, sr):
+    import numpy as np
+    from src.ffmpeg import ffmpeg
+    out = subprocess.run(
+        [ffmpeg(), "-v", "error", "-ss", str(max(0.0, start)), "-i", path,
+         "-t", str(dur), "-map", "a:0?", "-ac", "1", "-ar", str(sr),
+         "-f", "f32le", "-"], capture_output=True, check=True).stdout
+    return np.frombuffer(out, dtype="<f4")
 
 
 JOBS = {}       # render job_id -> {"status": running|done|error, "progress": [i, n], ...}
@@ -705,7 +720,7 @@ def start_render(plan, out_rel, bgm=None, bgm_volume=0.15, filename=None):
 def grab_frame(rel, t):
     full = within_root(rel)
     tmp = os.path.join(tempfile.gettempdir(), f"autopitch_frame_{abs(hash((rel, t)))}.jpg")
-    subprocess.run(["ffmpeg", "-y", "-v", "error", "-ss", str(t), "-i", full,
+    subprocess.run([_ffmpeg_bin(), "-y", "-v", "error", "-ss", str(t), "-i", full,
                     "-frames:v", "1", "-vf", "scale=-2:720", tmp], check=True)
     return tmp
 
@@ -772,9 +787,20 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_file(os.path.join(HERE, "app.html"), "text/html")
             if u.path == "/api/state":
                 return self._json(state_payload())
+            if u.path == "/api/preflight":
+                # Cached: the hardware-encoder probe shells out to ffmpeg, and
+                # the setup screen polls state on every refresh.
+                if "preflight" not in STATE:
+                    from src.preflight import run as _preflight
+                    STATE["preflight"] = _preflight(STATE["root"])
+                return self._json(STATE["preflight"])
+            if u.path == "/api/preflight_recheck":
+                from src.preflight import run as _preflight
+                STATE["preflight"] = _preflight(STATE["root"])
+                return self._json(STATE["preflight"])
             if u.path == "/api/rois":
                 p = os.path.join(STATE["root"], "net_rois.json")
-                return self._json(json.load(open(p)) if os.path.exists(p) else {})
+                return self._json(json.load(open(p, encoding="utf-8")) if os.path.exists(p) else {})
             if u.path == "/api/view_settings":
                 return self._json(load_view_settings())
             if u.path == "/api/dirs":
@@ -808,7 +834,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(job or {"status": "unknown"})
             if u.path == "/api/court_quad":
                 p = os.path.join(STATE["root"], "court_quads.json")
-                return self._json(json.load(open(p)) if os.path.exists(p) else {})
+                return self._json(json.load(open(p, encoding="utf-8")) if os.path.exists(p) else {})
             if u.path == "/api/render_status":
                 job = JOBS.get(q.get("job", [""])[0])
                 return self._json(job if job else {"status": "error", "error": "unknown job"})
@@ -855,6 +881,7 @@ class Handler(BaseHTTPRequestHandler):
                 if not os.path.isdir(p):
                     return self._err("not a directory")
                 STATE["root"] = p
+                STATE.pop("preflight", None)
                 return self._json(state_payload())
             if u.path == "/api/prepare":
                 cams = max(1, min(4, int(body.get("cams", 2))))
@@ -876,7 +903,7 @@ class Handler(BaseHTTPRequestHandler):
                 os.makedirs(out, exist_ok=True)
                 return self._json(list_dirs(parent))
             if u.path == "/api/rois":
-                json.dump(body["rois"], open(os.path.join(STATE["root"], "net_rois.json"), "w"), indent=2)
+                json.dump(body["rois"], open(os.path.join(STATE["root"], "net_rois.json"), "w", encoding="utf-8"), indent=2)
                 return self._json({"ok": True})
             if u.path == "/api/view_settings":
                 return self._json(save_view_settings(body))
@@ -885,16 +912,16 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"job": job})
             if u.path == "/api/analysis_start":
                 p = os.path.join(STATE["root"], "court_quads.json")
-                quads = json.load(open(p)) if os.path.exists(p) else {}
+                quads = json.load(open(p, encoding="utf-8")) if os.path.exists(p) else {}
                 return self._json({"job": start_analysis_job(
                     body.get("sources") or body.get("source"),
                     body.get("start", 0), body.get("dur", 90),
                     body.get("fps", 5), quads)})
             if u.path == "/api/court_quad":
                 p = os.path.join(STATE["root"], "court_quads.json")
-                d = json.load(open(p)) if os.path.exists(p) else {}
+                d = json.load(open(p, encoding="utf-8")) if os.path.exists(p) else {}
                 d[body["cam"]] = body["quad"]
-                json.dump(d, open(p, "w"), indent=2)
+                json.dump(d, open(p, "w", encoding="utf-8"), indent=2)
                 return self._json({"ok": True})
             if u.path == "/api/render":
                 job = start_render(body["plan"], body.get("out", "data/output/gui"),

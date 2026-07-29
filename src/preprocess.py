@@ -1,5 +1,6 @@
 import os
 import subprocess
+from src.ffmpeg import ffmpeg
 
 # Recognized raw video containers (matched case-insensitively).
 _VIDEO_EXTS = (".mp4", ".mov", ".m4v")
@@ -7,7 +8,7 @@ _VIDEO_EXTS = (".mp4", ".mov", ".m4v")
 
 def _ffmpeg(args):
     subprocess.run(
-        ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", *args],
+        [ffmpeg(), "-y", "-hide_banner", "-loglevel", "error", *args],
         check=True,
     )
 

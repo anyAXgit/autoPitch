@@ -1,6 +1,7 @@
 import numpy as np
-import librosa
 from scipy.signal import correlate
+
+from src.audio import load
 
 # Signals longer than this are downsampled by an integer factor before
 # correlation to bound compute cost.
@@ -8,8 +9,7 @@ _MAX_SECONDS = 600
 
 
 def _load(path, sr):
-    y, _ = librosa.load(path, sr=sr, mono=True)
-    return y
+    return load(path, sr)
 
 
 def _normalize(x):

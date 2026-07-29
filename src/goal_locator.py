@@ -15,6 +15,7 @@ import os
 import subprocess
 
 import numpy as np
+from src.ffmpeg import ffmpeg, ffprobe, hwaccel_args
 
 
 def load_rois(path):
@@ -22,7 +23,7 @@ def load_rois(path):
     coords. Returns {} if path is falsy or missing."""
     if not path or not os.path.exists(path):
         return {}
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -63,7 +64,7 @@ def _roi_gray_frames(source, t0, dur, roi, fps, px):
     vf = (f"crop=iw*{w}:ih*{h}:iw*{x}:ih*{y},fps={fps},"
           f"scale={px}:{px},format=gray")
     out = subprocess.run(
-        ["ffmpeg", "-v", "error", "-ss", str(max(0.0, t0)), "-i", source,
+        [ffmpeg(), "-v", "error", "-ss", str(max(0.0, t0)), "-i", source,
          "-t", str(dur), "-vf", vf, "-f", "rawvideo", "-pix_fmt", "gray", "-"],
         capture_output=True, check=True,
     ).stdout
@@ -78,7 +79,7 @@ def _roi_gray_frames_full(source, roi, fps, px):
     vf = (f"crop=iw*{w}:ih*{h}:iw*{x}:ih*{y},fps={fps},"
           f"scale={px}:{px},format=gray")
     out = subprocess.run(
-        ["ffmpeg", "-v", "error", "-i", source,
+        [ffmpeg(), "-v", "error", "-i", source,
          "-vf", vf, "-f", "rawvideo", "-pix_fmt", "gray", "-"],
         capture_output=True, check=True,
     ).stdout
@@ -100,7 +101,7 @@ def _roi_gray_keyframes(source, roi, px):
         # the stream fps, which zeroes most frame diffs (MAD~0 -> everything
         # "prominent") and silently defeats the keyframe fast path.
         return subprocess.run(
-            ["ffmpeg", "-v", "info", *(["-hwaccel", "videotoolbox"] if hw else []),
+            [ffmpeg(), "-v", "info", *([*hwaccel_args()] if hw else []),
              "-skip_frame", "nokey", "-i", source, "-vsync", "0",
              "-vf", vf, "-f", "rawvideo", "-pix_fmt", "gray", "-"],
             capture_output=True, check=True,
@@ -119,7 +120,7 @@ def _roi_gray_keyframes(source, roi, px):
 
 def _duration(source):
     out = subprocess.run(
-        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+        [ffprobe(), "-v", "error", "-show_entries", "format=duration",
          "-of", "default=noprint_wrappers=1:nokey=1", source],
         capture_output=True, text=True, check=True,
     ).stdout.strip()
@@ -231,7 +232,7 @@ def scan_goal_events(source, cfg, roi, min_gap_sec, cache_path=None):
     cache = {}
     if cache_path and os.path.exists(cache_path):
         try:
-            with open(cache_path) as f:
+            with open(cache_path, encoding="utf-8") as f:
                 cache = json.load(f)
         except (json.JSONDecodeError, OSError):
             cache = {}
@@ -269,6 +270,6 @@ def scan_goal_events(source, cfg, roi, min_gap_sec, cache_path=None):
     if cache_path:
         cache[key] = refined
         os.makedirs(os.path.dirname(cache_path) or ".", exist_ok=True)
-        with open(cache_path, "w") as f:
+        with open(cache_path, "w", encoding="utf-8") as f:
             json.dump(cache, f)
     return refined

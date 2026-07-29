@@ -37,12 +37,17 @@ enable_utf8()
 STATE = {"root": PROJ}
 
 
+class PathDenied(ValueError):
+    """A request asked for a path outside what the user has opened up. Refusing
+    it is a normal outcome, not a server fault -- it answers 403, not 500."""
+
+
 def within_root(path):
     """Resolve a user-supplied path and confirm it stays inside the project root."""
     root = os.path.realpath(STATE["root"])
     full = os.path.realpath(os.path.join(root, path))
     if full != root and not full.startswith(root + os.sep):
-        raise ValueError("path escapes project root")
+        raise PathDenied("path escapes project root")
     return full
 
 
@@ -141,6 +146,88 @@ def _session_label(rel, full):
     return "기본"
 
 
+# --- camera sources ---------------------------------------------------------
+# Footage is usually already on disk somewhere (SD card dump, Photos export) and
+# copying 20GB into the project just to be found is not a reasonable ask. When
+# the user picks folders here we read them where they are. The project folder
+# still holds config, cache and output.
+def _sources_path():
+    return os.path.join(STATE["root"], "data", "_gui", "sources.json")
+
+
+def load_sources():
+    p = _sources_path()
+    if not os.path.exists(p):
+        return {}
+    try:
+        with open(p, encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        return {}
+    cams = {k: v for k, v in (data.get("cameras") or {}).items()
+            if v and os.path.isdir(v)}
+    return {"cameras": cams, "label": data.get("label") or "내 폴더"} if cams else {}
+
+
+def save_sources(cameras, label=None):
+    cams = {}
+    for cam_id, path in (cameras or {}).items():
+        if not re.fullmatch(r"cam\d+", str(cam_id), re.I):
+            continue
+        if not path:
+            continue
+        full = os.path.realpath(os.path.expanduser(path))
+        if not os.path.isdir(full):
+            raise ValueError(f"폴더를 찾을 수 없습니다: {path}")
+        cams[str(cam_id).lower()] = full
+    p = _sources_path()
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    with open(p, "w", encoding="utf-8") as f:
+        json.dump({"cameras": cams, "label": label or "내 폴더"}, f,
+                  ensure_ascii=False, indent=2)
+    STATE.pop("preflight", None)
+    return load_sources()
+
+
+def source_roots():
+    """Folders the browser is allowed to read media from.
+
+    The project root plus whatever camera folders the user explicitly picked in
+    the native dialog -- nothing a request can add on its own.
+    """
+    roots = [os.path.realpath(STATE["root"])]
+    roots += list(load_sources().get("cameras", {}).values())
+    return roots
+
+
+def within_sources(path):
+    """Resolve a media path that may live outside the project root."""
+    cand = os.path.realpath(os.path.expanduser(path)) if os.path.isabs(path) \
+        else os.path.realpath(os.path.join(STATE["root"], path))
+    for root in source_roots():
+        if cand == root or cand.startswith(root + os.sep):
+            return cand
+    raise PathDenied("path is outside the project and configured camera folders")
+
+
+def rel_or_abs(full):
+    """Project-relative when inside it, absolute when the user picked a folder
+    elsewhere. `within_sources` accepts both, and relpath would otherwise emit
+    a ../../.. chain that no guard should accept."""
+    root = os.path.realpath(STATE["root"])
+    full = os.path.realpath(full)
+    if full == root or full.startswith(root + os.sep):
+        return os.path.relpath(full, root)
+    return full
+
+
+def _cameras_of(sess):
+    """(cam_id, folder) for a session, from picked folders or the data/raw scan."""
+    if sess.get("cameras_map"):
+        return sorted(sess["cameras_map"].items(), key=lambda kv: _cam_sort_key(kv[0]))
+    return _camera_dirs_in(sess["path"])
+
+
 def _camera_dirs_in(base):
     if not os.path.isdir(base):
         return []
@@ -154,6 +241,10 @@ def _camera_dirs_in(base):
 
 def raw_sessions():
     root = STATE["root"]
+    src = load_sources()
+    if src:
+        return [{"id": "sources", "rel": "", "path": None,
+                 "label": src["label"], "cameras_map": src["cameras"]}]
     raw = os.path.join(root, "data", "raw")
     if not os.path.isdir(raw):
         return []
@@ -179,7 +270,7 @@ def camera_dirs(session=None):
         sessions = [s for s in sessions if s["id"] == sid or s["rel"] == sid]
     if not sessions:
         return []
-    return _camera_dirs_in(sessions[0]["path"])
+    return _cameras_of(sessions[0])
 
 
 def camera_status():
@@ -189,11 +280,11 @@ def camera_status():
     dirs = []
     for sess in raw_sessions():
         scams = []
-        for cam_id, full in _camera_dirs_in(sess["path"]):
+        for cam_id, full in _cameras_of(sess):
             files = _list_videos(full)
             item = {
                 "id": cam_id,
-                "path": os.path.relpath(full, root),
+                "path": rel_or_abs(full),
                 "count": len(files),
                 "files": [os.path.basename(f) for f in files[:4]],
             }
@@ -411,7 +502,7 @@ def _games_for_session(sess, global_start=1):
     yields one game per cam1 clip.
     """
     root = STATE["root"]
-    dirs = _camera_dirs_in(sess["path"])
+    dirs = _cameras_of(sess)
     if not dirs:
         return []
     tracks = {}
@@ -455,7 +546,7 @@ def _games_for_session(sess, global_start=1):
             "session_rel": sess["rel"],
             "session_label": sess["label"],
             "cameras": [
-                {"id": cam, "path": os.path.relpath(c["path"], root),
+                {"id": cam, "path": rel_or_abs(c["path"]),
                  "start": c["start"], "dur": c["dur"]}
                 for cam, c in cams.items()
             ],
@@ -665,7 +756,7 @@ def wave_env(rel, t0, t1, n):
     """
     import numpy as np
     from src.audio import load
-    full = within_root(rel)
+    full = within_sources(rel)
     if t1 <= t0:
         return []
     sr = 8000                      # envelope only -- no need for full fidelity
@@ -879,7 +970,7 @@ def start_render(plan, out_rel, bgm=None, bgm_volume=0.15, filename=None):
 
 
 def grab_frame(rel, t):
-    full = within_root(rel)
+    full = within_sources(rel)
     tmp = os.path.join(tempfile.gettempdir(), f"autopitch_frame_{abs(hash((rel, t)))}.jpg")
     subprocess.run([_ffmpeg_bin(), "-y", "-v", "error", "-ss", str(t), "-i", full,
                     "-frames:v", "1", "-vf", "scale=-2:720", tmp], check=True)
@@ -963,6 +1054,15 @@ class Handler(BaseHTTPRequestHandler):
                 # same way the render does rather than rejecting it.
                 out = q.get("output", ["0"])[0] == "1"
                 return self._json({"opened": reveal_dir(rel, allow_outside=out)})
+            if u.path == "/api/sources":
+                src = load_sources()
+                return self._json({
+                    "cameras": src.get("cameras", {}),
+                    "label": src.get("label", ""),
+                    "counts": {k: len(_list_videos(v))
+                               for k, v in src.get("cameras", {}).items()},
+                    "default_raw": os.path.join(STATE["root"], "data", "raw"),
+                })
             if u.path == "/api/settings":
                 return self._json(settings_payload())
             if u.path == "/api/install_ffmpeg_status":
@@ -1012,8 +1112,10 @@ class Handler(BaseHTTPRequestHandler):
                 job = JOBS.get(q.get("job", [""])[0])
                 return self._json(job if job else {"status": "error", "error": "unknown job"})
             if u.path.startswith("/media/"):
-                return self._send_file(within_root(urllib.parse.unquote(u.path[len("/media/"):])))
+                return self._send_file(within_sources(urllib.parse.unquote(u.path[len("/media/"):])))
             return self._err("not found", 404)
+        except PathDenied as e:
+            return self._err(str(e), 403)
         except Exception as e:  # noqa
             return self._err(f"{type(e).__name__}: {e}", 500)
 
@@ -1021,6 +1123,20 @@ class Handler(BaseHTTPRequestHandler):
         u = urllib.parse.urlparse(self.path)
         q = urllib.parse.parse_qs(u.query)
         try:
+            if u.path == "/api/sources":
+                body = self._read_json()
+                if body.get("clear"):
+                    p = _sources_path()
+                    if os.path.exists(p):
+                        os.remove(p)
+                    return self._json({"cameras": {}})
+                src = save_sources(body.get("cameras") or {}, body.get("label"))
+                return self._json({"cameras": src.get("cameras", {}),
+                                   "label": src.get("label", "")})
+            if u.path == "/api/pick_dir":
+                body = self._read_json()
+                picked = choose_native_dir(body.get("initial") or "")
+                return self._json({"path": picked or ""})
             if u.path == "/api/install_ffmpeg":
                 return self._json(start_ffmpeg_install())
             if u.path == "/api/settings":
@@ -1112,6 +1228,8 @@ class Handler(BaseHTTPRequestHandler):
                                    body.get("filename"))
                 return self._json({"job": job})
             return self._err("not found", 404)
+        except PathDenied as e:
+            return self._err(str(e), 403)
         except Exception as e:  # noqa
             return self._err(f"{type(e).__name__}: {e}", 500)
 

@@ -130,8 +130,9 @@
   .help-box{background:#161b22;border:1px solid #2a323d;border-radius:10px;
     padding:12px 14px;margin:8px 0 12px;line-height:1.55;font-size:14px}
   .steps3{display:flex;flex-direction:column;gap:7px;margin-top:6px;font-size:14px;line-height:1.5}
-  .steps3 b{display:inline-block;width:20px;height:20px;line-height:20px;text-align:center;
-    border-radius:50%;background:#2a323d;color:#e7ebf0;font-size:12px;margin-right:7px}
+  .steps3>div>b:first-child{display:inline-block;width:20px;height:20px;line-height:20px;
+    text-align:center;border-radius:50%;background:#2a323d;color:#e7ebf0;font-size:12px;
+    margin-right:7px}
   .steps3 code{background:#0f1216;padding:1px 5px;border-radius:4px;font-size:13px}
   .lib-empty{padding:16px 14px;line-height:1.6;font-size:13px;color:#8b95a3}
   .lib-empty b{display:block;color:#e7ebf0;font-size:14px;margin-bottom:6px}
@@ -139,10 +140,6 @@
   .lib-legend{padding:5px 8px;font-size:11px;color:#8b95a3;border-bottom:1px solid #2a323d}
   .tbtn.tog{min-width:60px}
   .tbtn.tog.on{color:#37d67a;border-color:#2f6b48}
-  .key-modal{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;
-    align-items:center;justify-content:center;z-index:60}
-  .key-card{background:#161b22;border:1px solid #2a323d;border-radius:12px;
-    padding:16px 18px;min-width:340px;max-width:90vw}
   .key-tbl{width:100%;border-collapse:collapse;margin-top:8px;font-size:13px}
   .key-tbl td{padding:5px 6px;border-bottom:1px solid #222a34;color:#c7d0da}
   .key-tbl td:first-child{width:110px;white-space:nowrap}
@@ -162,6 +159,12 @@
   .inst-log{margin:8px 0 0;padding:8px 10px;background:#0f1216;border:1px solid #2a323d;
     border-radius:8px;max-height:180px;overflow:auto;font-size:11px;line-height:1.5;
     white-space:pre-wrap;color:#8b95a3}
+  .src-list{display:flex;flex-direction:column;gap:6px;margin:8px 0}
+  .src-row{display:flex;align-items:center;gap:8px;font-size:13px}
+  .src-row>b{width:44px;color:#e7ebf0}
+  .src-path{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+    direction:rtl;text-align:left;font-size:12px}
+  .src-n{white-space:nowrap;font-size:12px}
 </style>
 </head>
 <body>
@@ -208,6 +211,59 @@ document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{
 async function loadState(){ const [st,pf]=await Promise.all([api('/api/state'),api('/api/preflight').catch(()=>null)]); STATE=st; STATE.preflight=pf; $('#root').textContent='📁 '+STATE.root; renderSetup(); }
 
 
+
+/* ---------- 카메라 폴더 ---------- */
+// 촬영본을 프로젝트 안으로 복사하게 만들지 않는다 — 있는 자리를 가리킨다.
+let camCount=null;
+async function renderCamSources(){
+  const box=$('#camSourcesCard'); if(!box) return;
+  let s; try{ s=await api('/api/sources'); }catch(e){ box.innerHTML=''; return; }
+  const cams=s.cameras||{}, counts=s.counts||{};
+  const configured=Object.keys(cams).length;
+  if(camCount===null) camCount=configured||2;
+  const ids=Array.from({length:camCount},(_,i)=>`cam${i+1}`);
+  box.innerHTML=`
+    <div class="row"><b>카메라 폴더</b>
+      <span class="mut" style="margin-left:auto;font-size:11px">촬영본은 그 자리에서 읽습니다</span></div>
+    <div class="row"><span class="mut">카메라 대수</span>
+      ${[1,2,3,4].map(n=>`<button class="tbtn ${camCount===n?'on':''}" data-n="${n}">${n}대</button>`).join('')}</div>
+    <div class="src-list">${ids.map(id=>{
+      const p=cams[id]||''; const n=counts[id];
+      return `<div class="src-row">
+        <b>${id}</b>
+        <span class="src-path ${p?'':'mut'}" title="${p}">${p||'폴더가 지정되지 않았습니다'}</span>
+        <span class="mut src-n">${p?`영상 ${n??0}개`:''}</span>
+        <button class="tbtn" data-pick="${id}">${p?'변경':'폴더 선택'}</button>
+      </div>`;}).join('')}</div>
+    ${configured?`<div class="row"><button class="tbtn" id="srcClear">지정 해제하고 data/raw 사용</button></div>`:
+      `<div class="mut" style="font-size:11px;margin-top:6px">지정하지 않으면 작업 폴더의 <code>data/raw/&lt;날짜&gt;/cam1</code> 구조를 씁니다.</div>`}`;
+
+  box.querySelectorAll('[data-n]').forEach(b=>b.onclick=()=>{camCount=+b.dataset.n;renderCamSources();});
+  box.querySelectorAll('[data-pick]').forEach(b=>b.onclick=async()=>{
+    const id=b.dataset.pick;
+    try{
+      const p=await pickDirGlobal(cams[id]||'');
+      if(!p)return;
+      const next={...cams,[id]:p};
+      Object.keys(next).forEach(k=>{if(!ids.includes(k))delete next[k];});
+      await api('/api/sources',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({cameras:next})});
+      await loadState();
+    }catch(e){alert(e.message);}
+  });
+  const clr=$('#srcClear');
+  if(clr) clr.onclick=async()=>{
+    await api('/api/sources',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({clear:true})});
+    camCount=null; await loadState();
+  };
+}
+window.pickDirGlobal=async initial=>{
+  const r=await api('/api/pick_dir',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({initial:initial||''})});
+  return r.path||'';
+};
+
 /* ---------- 세부 설정 ---------- */
 // config.yaml 을 직접 열지 않고도 결과를 바꿀 수 있게. 서버가 값과 설명을
 // 같이 내려주므로 여기서는 그리기만 한다.
@@ -228,14 +284,20 @@ async function renderSettings(){
       <span class="set-ctl"><input type="number" data-k="${f.key}" min="${f.min}" max="${f.max}"
         step="${f.step}" value="${v}">${f.unit?`<span class="mut">${f.unit}</span>`:''}</span></div>`;
   };
+  // 항상 펼쳐 두면 설정 화면이 이걸로 가득 찬다 — 평소엔 한 줄, 필요할 때 모달.
   box.innerHTML=`<div class="row"><b>세부 설정</b>
-      <span class="mut" style="margin-left:auto;font-size:11px">바꾸면 다음 “장면 찾기”부터 적용됩니다</span></div>
-    <div class="set-list">${s.fields.map(row).join('')}</div>
-    <div class="row"><span id="setStat" class="mut" style="font-size:12px"></span>
-      <button class="btn primary" id="setSave" style="margin-left:auto" disabled>저장</button></div>`;
+      <span class="mut">탐지 민감도·장면 길이·출력 크기</span>
+      <button class="btn" id="setOpen" style="margin-left:auto">열기</button></div>`;
+  const modal=$('#setModal'), body=$('#setModalBody');
+  body.innerHTML=`<div class="mut" style="font-size:12px;margin-bottom:6px">바꾸면 다음 “장면 찾기”부터 적용됩니다</div>
+    <div class="set-list">${s.fields.map(row).join('')}</div>`;
+  const show=v=>{modal.hidden=!v;};
+  $('#setOpen').onclick=()=>show(true);
+  $('#setCancel').onclick=()=>show(false);
+  modal.onmousedown=e=>{if(e.target===modal)show(false);};
 
   const dirty={};
-  box.querySelectorAll('[data-k]').forEach(el=>{
+  body.querySelectorAll('[data-k]').forEach(el=>{
     const f=s.fields.find(x=>x.key===el.dataset.k);
     el.oninput=()=>{
       const val=f.type==='bool'?el.checked:parseFloat(el.value);
@@ -252,6 +314,7 @@ async function renderSettings(){
         body:JSON.stringify({values:dirty})});
       $('#setStat').textContent=r.changed.length?`저장됨 (${r.changed.length}개 변경)`:'변경 사항 없음';
       Object.keys(dirty).forEach(k=>delete dirty[k]);
+      setTimeout(()=>show(false),600);
     }catch(e){ $('#setStat').textContent='저장 실패: '+e.message; $('#setSave').disabled=false; }
   };
 }
@@ -465,15 +528,15 @@ function renderSetup(){
         <div class="card">
           <div class="row"><b>이렇게 진행됩니다</b><span class="mut">2시간 영상 기준 경기당 3~5분 정도 걸립니다.</span></div>
           <div class="steps3">
-            <div><b>1</b> 촬영한 영상을 <code>cam1</code>, <code>cam2</code> 폴더에 넣습니다.</div>
+            <div><b>1</b> 카메라별로 <b>촬영본이 들어 있는 폴더</b>를 지정합니다. <span class="mut">복사하지 않고 그 자리에서 읽습니다.</span></div>
             <div><b>2</b> 골대가 화면 어디인지 한 번 그려줍니다. <span class="mut">(건너뛰어도 됩니다)</span></div>
             <div><b>3</b> 자동으로 찾은 장면을 확인·수정하고 내보냅니다.</div>
           </div>
         </div>
         <div class="card">
-          <div class="row"><b>시작할 프로젝트</b><span class="mut">현재 폴더를 확인하고 필요한 단계만 보여줍니다.</span></div>
-          <div class="row"><input id="rootIn" style="flex:1" value="${STATE.root}">
-            <button class="btn" id="setRoot">확인</button>
+          <div class="row"><b>작업 폴더</b><span class="mut">설정·결과물이 저장되는 곳입니다. 촬영본은 여기 없어도 됩니다.</span></div>
+          <div class="row"><input id="rootIn" style="flex:1" value="${STATE.root}" readonly>
+            <button class="btn" id="pickRoot">폴더 선택</button>
             <button class="btn" id="reloadState">새로고침</button></div>
           <div class="status-list">
             ${status.map(s=>`<div class="status-item ${s.ok?'ok':(s.warn?'warn':'err')}">
@@ -503,7 +566,17 @@ function renderSetup(){
         </div>
       </div>
       <div>
+        <div class="card" id="camSourcesCard"></div>
         <div class="card" id="settingsCard"></div>
+        <div class="modal-back" id="setModal" hidden>
+          <div class="modal" style="width:min(620px,calc(100vw - 24px))">
+            <div class="mh">세부 설정</div>
+            <div class="mb" id="setModalBody" style="max-height:60vh;overflow:auto"></div>
+            <div class="mf"><span id="setStat" class="mut" style="margin-right:auto;font-size:12px"></span>
+              <button class="btn" id="setCancel">닫기</button>
+              <button class="btn primary" id="setSave" disabled>저장</button></div>
+          </div>
+        </div>
         <div class="card">
           <div class="row"><b>카메라 입력</b><span class="mut">${totalFiles}개 파일 · 전체 ${allFiles}개</span></div>
           ${ss.length>1?`<div class="row"><span class="mut">날짜 폴더</span><select id="setupSession">${ss.map(s=>`<option value="${s.id}" ${s.id===setupSession?'selected':''}>${s.label} · 영상 ${s.count||0}개</option>`).join('')}</select></div>`:''}
@@ -519,7 +592,20 @@ function renderSetup(){
       </div>
     </div>`;
   const refresh=async()=>{await loadState();};
-  $('#setRoot').onclick=async()=>{ try{ STATE=await api('/api/root',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:$('#rootIn').value})}); $('#root').textContent='📁 '+STATE.root; renderSetup(); }catch(e){alert(e.message);} };
+  // 경로를 손으로 타이핑하게 두면 오타 하나로 막힌다 — OS 폴더 선택창을 쓴다.
+  const pickDir=async initial=>{
+    const r=await api('/api/pick_dir',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({initial:initial||''})});
+    return r.path||'';
+  };
+  $('#pickRoot').onclick=async()=>{
+    try{
+      const p=await pickDir(STATE.root); if(!p)return;
+      STATE=await api('/api/root',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({path:p})});
+      $('#root').textContent='📁 '+STATE.root; await loadState();
+    }catch(e){alert(e.message);}
+  };
   $('#reloadState').onclick=()=>refresh().catch(e=>alert(e.message));
   const reveal=async p=>{try{await api('/api/reveal?path='+encodeURIComponent(p));}catch(e){alert(e.message);}};
   const or1=$('#openRaw'), or2=$('#openRaw2');
@@ -546,6 +632,7 @@ function renderSetup(){
       }
     }catch(e){log.textContent='설치 실패: '+e.message;inst.disabled=false;}
   };
+  renderCamSources();
   renderSettings();
   $('#setupSession')?.addEventListener('change',e=>{setupSession=e.target.value;window._edSession=setupSession;renderSetup();});
   $('#refreshOnly')?.addEventListener('click',()=>refresh().catch(e=>alert(e.message)));
@@ -779,10 +866,10 @@ async function renderEdit(){
       <label class="mut" style="font-size:12px">전환(초) <input id="edXf" type="number" step="0.1" min="0" style="width:56px" title="앵글 전환 크로스페이드 (0 = 하드컷)"></label>
       <button class="btn primary" id="edRender">렌더</button>
       <span id="edRstat" class="mut" style="font-size:12px"></span>
-      <div class="key-modal" id="keyModal" hidden>
-        <div class="key-card">
-          <div class="row"><b>단축키</b><button class="tbtn" id="keyClose" style="margin-left:auto">닫기</button></div>
-          <table class="key-tbl">
+      <div class="modal-back" id="keyModal" hidden>
+        <div class="modal">
+          <div class="mh">단축키</div>
+          <div class="mb"><table class="key-tbl">
             <tr><td><kbd>Space</kbd></td><td>재생 / 멈춤</td></tr>
             <tr><td><kbd>I</kbd></td><td>지금 재생 위치를 장면 <b>시작</b>으로</td></tr>
             <tr><td><kbd>O</kbd></td><td>지금 재생 위치를 장면 <b>끝</b>으로</td></tr>
@@ -793,7 +880,8 @@ async function renderEdit(){
             <tr><td><kbd>N</kbd></td><td>자석 붙임 켜기 / 끄기</td></tr>
             <tr><td><kbd>←</kbd> <kbd>→</kbd></td><td>한 프레임씩 이동</td></tr>
             <tr><td><kbd>⌘Z</kbd> / <kbd>⇧⌘Z</kbd></td><td>되돌리기 / 다시하기</td></tr>
-          </table>
+          </table></div>
+          <div class="mf"><button class="btn" id="keyClose">닫기</button></div>
         </div>
       </div>
       <div class="job-panel" id="jobPanel" hidden>

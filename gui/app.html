@@ -159,6 +159,9 @@
   .set-ctl input[type=number]{width:74px}
   .set-ctl input[type=range]{width:110px}
   .set-ctl output{min-width:30px;text-align:right;color:#e7ebf0;font-size:12px}
+  .inst-log{margin:8px 0 0;padding:8px 10px;background:#0f1216;border:1px solid #2a323d;
+    border-radius:8px;max-height:180px;overflow:auto;font-size:11px;line-height:1.5;
+    white-space:pre-wrap;color:#8b95a3}
 </style>
 </head>
 <body>
@@ -492,7 +495,10 @@ function renderSetup(){
               <button class="btn" id="openRaw2">영상 폴더 열기</button>
             </div>`:''}
             ${next.actions==='refresh'?`<div class="choice"><button class="btn primary" id="refreshOnly">다시 확인</button></div>`:''}
-            ${next.actions==='recheck'?`<div class="choice"><button class="btn primary" id="recheckEnv">설치했습니다 · 다시 확인</button></div>`:''}
+            ${next.actions==='recheck'?`<div class="choice">
+              ${blocking.includes('ffmpeg')?`<button class="btn primary" id="installFf">ffmpeg 설치하기</button>`:''}
+              <button class="btn" id="recheckEnv">직접 설치했습니다 · 다시 확인</button>
+            </div><pre class="inst-log" id="instLog" hidden></pre>`:''}
           </div>
         </div>
       </div>
@@ -521,6 +527,25 @@ function renderSetup(){
   if(or1) or1.onclick=()=>reveal(rawPath);
   if(or2) or2.onclick=()=>reveal(rawPath);
   const rc=$('#recheckEnv'); if(rc) rc.onclick=async()=>{await api('/api/preflight_recheck');await loadState();};
+  const inst=$('#installFf');
+  if(inst) inst.onclick=async()=>{
+    // 실행되는 명령을 먼저 보여주고 동의를 받는다 — 사용자 기기에 패키지 관리자를 돌리는 일이다.
+    const cmdText=navigator.platform.startsWith('Win')
+      ? 'winget install --id Gyan.FFmpeg' : 'brew install ffmpeg';
+    if(!confirm(`아래 명령을 실행합니다.\n\n  ${cmdText}\n\n계속할까요?`))return;
+    inst.disabled=true; const log=$('#instLog'); log.hidden=false; log.textContent='설치 시작…';
+    try{
+      await api('/api/install_ffmpeg',{method:'POST'});
+      for(;;){
+        await new Promise(r=>setTimeout(r,1200));
+        const j=await api('/api/install_ffmpeg_status');
+        log.textContent=(j.cmd?`$ ${j.cmd}\n`:'')+(j.log||'');
+        log.scrollTop=log.scrollHeight;
+        if(j.status==='done'){log.textContent+=`\n✓ ${j.result}`;await loadState();break;}
+        if(j.status==='error'){log.textContent+=`\n✗ ${j.error}`;inst.disabled=false;break;}
+      }
+    }catch(e){log.textContent='설치 실패: '+e.message;inst.disabled=false;}
+  };
   renderSettings();
   $('#setupSession')?.addEventListener('change',e=>{setupSession=e.target.value;window._edSession=setupSession;renderSetup();});
   $('#refreshOnly')?.addEventListener('click',()=>refresh().catch(e=>alert(e.message)));

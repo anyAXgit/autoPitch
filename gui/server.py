@@ -279,6 +279,63 @@ SETTINGS = [
 ]
 
 
+# The exact commands the preflight screen already prints. Fixed per platform and
+# never built from request data -- this runs a package manager on the user's
+# machine, so there is nothing user-supplied anywhere near the argv.
+FFMPEG_INSTALL = {
+    "Darwin": (["brew", "install", "ffmpeg"], "brew",
+               "Homebrew가 없습니다. https://brew.sh 에서 설치한 뒤 다시 시도해 주세요."),
+    "Windows": (["winget", "install", "--id", "Gyan.FFmpeg", "-e",
+                 "--accept-source-agreements", "--accept-package-agreements"], "winget",
+                "winget을 찾을 수 없습니다. Microsoft Store의 '앱 설치 관리자'를 설치해 주세요."),
+    "Linux": (["sudo", "apt-get", "install", "-y", "ffmpeg"], "apt-get",
+              "apt-get이 없습니다. 배포판의 패키지 관리자로 ffmpeg를 설치해 주세요."),
+}
+INSTALL_JOB = {}
+
+
+def _install_ffmpeg_job():
+    entry = FFMPEG_INSTALL.get(platform.system())
+    job = INSTALL_JOB
+    if not entry:
+        job.update(status="error", error="이 운영체제는 자동 설치를 지원하지 않습니다.")
+        return
+    cmd, tool, hint = entry
+    if not shutil.which(tool):
+        job.update(status="error", error=hint)
+        return
+    job.update(status="running", cmd=" ".join(cmd), log="")
+    try:
+        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                             text=True, errors="replace")
+        for line in p.stdout:
+            job["log"] = (job.get("log", "") + line)[-4000:]
+        code = p.wait()
+    except Exception as e:  # noqa
+        job.update(status="error", error=str(e))
+        return
+    STATE.pop("preflight", None)          # force a fresh check
+    from src.ffmpeg import _CACHE
+    _CACHE.clear()                        # the binary may exist only now
+    from src.ffmpeg import available
+    ok, msg = available()
+    if ok:
+        job.update(status="done", result=msg)
+    else:
+        job.update(status="error",
+                   error=f"설치 명령이 끝났지만 ffmpeg를 찾지 못했습니다 (종료코드 {code}). "
+                         f"터미널에서 직접 실행해 보세요: {' '.join(cmd)}")
+
+
+def start_ffmpeg_install():
+    if INSTALL_JOB.get("status") == "running":
+        return INSTALL_JOB
+    INSTALL_JOB.clear()
+    INSTALL_JOB.update(status="running", log="", cmd="")
+    threading.Thread(target=_install_ffmpeg_job, daemon=True).start()
+    return INSTALL_JOB
+
+
 def _config_path():
     return os.path.join(STATE["root"], "config.yaml")
 
@@ -908,6 +965,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"opened": reveal_dir(rel, allow_outside=out)})
             if u.path == "/api/settings":
                 return self._json(settings_payload())
+            if u.path == "/api/install_ffmpeg_status":
+                return self._json(INSTALL_JOB or {"status": "idle"})
             if u.path == "/api/preflight_recheck":
                 from src.preflight import run as _preflight
                 STATE["preflight"] = _preflight(STATE["root"])
@@ -962,6 +1021,8 @@ class Handler(BaseHTTPRequestHandler):
         u = urllib.parse.urlparse(self.path)
         q = urllib.parse.parse_qs(u.query)
         try:
+            if u.path == "/api/install_ffmpeg":
+                return self._json(start_ffmpeg_install())
             if u.path == "/api/settings":
                 body = self._read_json()
                 allowed = {f["key"] for f in SETTINGS}

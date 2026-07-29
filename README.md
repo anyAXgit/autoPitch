@@ -148,9 +148,35 @@ ROI 탭의 `좌우 반전`은 파일별 보기 설정이다. 같은 날짜의 �
 결과는 `dist/`에 생긴다 (macOS `autoPitch.app`, Windows `autoPitch.exe`).
 PyInstaller는 크로스 컴파일을 못 하므로 각 OS에서 따로 빌드해야 한다.
 
-**ffmpeg 포함 여부** — 기본 빌드는 ffmpeg를 넣지 않고 PATH에서 찾는다.
-없으면 첫 화면이 설치 방법(`brew install ffmpeg` / `winget install --id
-Gyan.FFmpeg`)을 안내한다. 자체 포함하려면:
+### ffmpeg를 왜 번들하지 않는가
+
+**결정: 배포 빌드에 ffmpeg를 넣지 않는다.** 첫 화면이 유무를 확인하고,
+없으면 `ffmpeg 설치하기` 버튼 한 번으로 각 OS의 패키지 관리자를 통해 설치한다.
+
+측정해 보면 파이프라인이 요구하는 것 중 **GPL인 건 `libx264` 하나뿐**이다.
+aac 인코딩, xfade/acrossfade, overlay/scale/pad, 하드웨어 인코더
+(videotoolbox·nvenc·qsv·amf)는 전부 LGPL 범위다. 실제로 하드웨어 인코더만으로
+전체 렌더가 완결되는 것을 확인했다.
+
+그래서 세 갈래가 있었다:
+
+| | HW 인코더 있는 기기 | HW 인코더 없는 기기 | 라이선스 부담 |
+|---|---|---|---|
+| LGPL 번들 (x264 제외) | 동작 | **렌더 불가** | LGPL 고지·소스 제공 |
+| GPL 번들 (x264 포함) | 동작 | 동작 | **GPL 소스 제공 의무** |
+| 번들 안 함 (채택) | 동작 | 동작 | 없음 |
+
+LGPL 번들은 "느려짐"이 아니라 **아예 못 쓰는 기기**를 만든다(GitHub의 Windows
+러너가 정확히 그런 환경이다). openh264를 넣으면 해결되지만 macOS용은 직접
+빌드해야 하고 특허 관계도 단순하지 않다. GPL 번들은 동작하지만 MIT 프로젝트의
+릴리스에 GPL 바이너리를 넣고 그 소스 제공 의무를 지는 일이다.
+
+한편 앱은 아직 양쪽 OS에서 **서명되어 있지 않다**(adhoc). macOS는 우클릭→열기,
+Windows는 SmartScreen 경고를 어차피 거치므로, 번들해도 "더블클릭하면 그냥 됨"은
+성립하지 않는다. 그 대가로 GPL을 질 이유가 없다고 판단했다.
+
+이 프로젝트 코드는 ffmpeg를 **별도 프로세스로 호출**하므로 어느 쪽이든 MIT를
+유지한다. 직접 번들하려면:
 
 ```bash
 ./.venv/bin/python packaging/build.py --vendor-ffmpeg $(which ffmpeg) $(which ffprobe)

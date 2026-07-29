@@ -187,6 +187,15 @@
   .src-files{color:var(--mut);font-size:11px;line-height:1.5;margin-top:5px;
     overflow:hidden;text-overflow:ellipsis}
   td.fn{max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .guide{display:flex;gap:14px;align-items:flex-start;margin-top:10px;flex-wrap:wrap}
+  .court{width:min(100%,360px);flex:1 1 280px;background:#0f1216;border:1px solid var(--line);
+    border-radius:8px;padding:4px}
+  .guide-list{flex:1 1 260px;margin:0;padding-left:20px;font-size:12.5px;line-height:1.6;color:#c7d0da}
+  .guide-list li{margin-bottom:7px}
+  .guide-list b{color:#e7ebf0}
+  .guide-note{margin-top:10px;padding:9px 11px;border-radius:8px;background:#141a22;
+    border:1px solid var(--line);font-size:12px;line-height:1.6;color:#8b95a3}
+  .guide-note b{color:#c7d0da}
 </style>
 </head>
 <body>
@@ -575,9 +584,9 @@ function renderSetup(){
           : {title:'영상은 찾았지만 경기 목록이 비어 있습니다',desc:'카메라 한 대면 cam1 에만 넣으면 됩니다. 여러 대라면 각 폴더의 영상 개수가 같은지, 같은 경기를 찍은 파일인지 확인해 주세요.',actions:'refresh'};
   $('#setup').innerHTML=`
     <div class="intro">
-      <b>소리로 하이라이트를 찾습니다.</b> 골이 들어가면 사람들이 반응하고, 그 순간 소리가 튑니다 —
-      두 시간을 다 볼 필요가 없습니다. 카메라를 고정해 두면 골대 위치까지 알 수 있어 컷 시작점도
-      정확해집니다. <span class="mut">영상은 이 컴퓨터 밖으로 나가지 않습니다.</span>
+      <b>풋살 풀영상에서 하이라이트만 뽑아 줍니다.</b>
+      두 시간짜리 경기를 다 보지 않아도 됩니다.
+      <span class="mut">영상은 이 컴퓨터 밖으로 나가지 않습니다.</span>
     </div>
 
     <!-- 지금 할 일은 폭을 다 써서 맨 위에. 좌우 열은 그 아래에서 균형을 맞춘다. -->
@@ -609,6 +618,55 @@ function renderSetup(){
         <div><b>3</b> 자동으로 찾은 장면을 확인·수정하고 내보냅니다.</div>
       </div>
     </div>`}
+
+    <details class="card" id="camGuide" ${next.actions==='ready'?'':'open'}>
+          <summary><b>카메라 어떻게 놓을까</b> <span class="mut">이 프로그램에 맞는 설치법</span></summary>
+          <div class="guide">
+            <svg viewBox="0 0 420 250" class="court" role="img" aria-label="풋살 코트와 카메라 배치도">
+              <!-- 코트 -->
+              <rect x="46" y="46" width="328" height="158" rx="3" fill="#12181f" stroke="#3a4655" stroke-width="2"/>
+              <line x1="210" y1="46" x2="210" y2="204" stroke="#3a4655" stroke-width="1.5"/>
+              <circle cx="210" cy="125" r="26" fill="none" stroke="#3a4655" stroke-width="1.5"/>
+              <!-- 골대 -->
+              <rect x="38" y="107" width="8" height="36" fill="none" stroke="#e7ebf0" stroke-width="2.5"/>
+              <rect x="374" y="107" width="8" height="36" fill="none" stroke="#e7ebf0" stroke-width="2.5"/>
+              <!-- 시야: 채움만 겹치면 어느 카메라 것인지 안 읽힌다. 테두리로 구분한다. -->
+              <polygon points="34,214 378,58 378,198" fill="#4ea1ff" fill-opacity="0.09"
+                       stroke="#4ea1ff" stroke-opacity="0.45" stroke-width="1" stroke-dasharray="4 3"/>
+              <polygon points="386,36 42,192 42,52" fill="#f0b429" fill-opacity="0.09"
+                       stroke="#f0b429" stroke-opacity="0.45" stroke-width="1" stroke-dasharray="4 3"/>
+              <!-- 카메라 -->
+              <g>
+                <circle cx="34" cy="214" r="9" fill="#4ea1ff"/>
+                <text x="34" y="218" text-anchor="middle" font-size="10" fill="#0f1216" font-weight="700">1</text>
+                <text x="50" y="232" font-size="11" fill="#4ea1ff">cam1 · 대각선 코너</text>
+              </g>
+              <g>
+                <circle cx="386" cy="36" r="9" fill="#f0b429"/>
+                <text x="386" y="40" text-anchor="middle" font-size="10" fill="#0f1216" font-weight="700">2</text>
+                <text x="370" y="22" font-size="11" fill="#f0b429" text-anchor="end">cam2 · 반대편 코너</text>
+              </g>
+              <text x="60" y="100" font-size="10" fill="#8b95a3">골대</text>
+              <text x="360" y="100" font-size="10" fill="#8b95a3" text-anchor="end">골대</text>
+              <text x="210" y="222" text-anchor="middle" font-size="10" fill="#5d6b7d">— 사이드라인 —</text>
+            </svg>
+            <ol class="guide-list">
+              <li><b>양쪽 사이드라인의 대각선 코너</b>에 한 대씩.
+                한 대가 가린 장면을 다른 대가 봅니다. 한 대만 있어도 동작합니다.</li>
+              <li><b>펜스에 클램프로 물리세요.</b> 삼각대는 좁은 코트에서 위험하고 자리를 차지합니다.
+                거창한 장비 없이 있는 구조물에 물리는 게 낫습니다.</li>
+              <li><b>한 번 놓으면 경기 내내 건드리지 마세요.</b>
+                고정돼 있어야 골대 위치를 한 번만 그려도 계속 씁니다. 옮기면 다시 그려야 합니다.</li>
+              <li><b>1080p 60fps</b> 정도면 충분합니다. 더 올려도 결과는 같고 처리만 느려집니다.</li>
+              <li><b>마이크를 막지 마세요.</b> 소리로 장면을 찾기 때문에, 케이스나 바람막이가
+                리액션을 덮으면 놓칩니다.</li>
+            </ol>
+          </div>
+          <div class="guide-note">
+            <b>골대 뒤에 한 대를 더 둘 수 있다면</b> — 옆에서 보면 공이 키퍼와 골대에 가려서,
+            아무도 소리 내지 않은 골은 이 프로그램도 못 찾습니다. 골대 뒤 카메라가 있으면 그게 풀립니다.
+          </div>
+    </details>
 
     <div class="setup-grid">
       <div>

@@ -165,6 +165,14 @@
   .src-path{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
     direction:rtl;text-align:left;font-size:12px}
   .src-n{white-space:nowrap;font-size:12px}
+  .next-card{border-color:#2f4a6b}
+  .next-card.ready{border-color:#2f6b48;background:linear-gradient(180deg,#16241c,#161b22)}
+  .status-title.big{font-size:17px;margin-bottom:2px}
+  .btn.big{padding:9px 18px;font-size:14px}
+  details.card>summary{cursor:pointer;list-style:none;display:flex;gap:8px;align-items:center;font-size:13px}
+  details.card>summary::-webkit-details-marker{display:none}
+  details.card>summary::before{content:'▸';color:#8b95a3;font-size:11px}
+  details.card[open]>summary::before{content:'▾'}
 </style>
 </head>
 <body>
@@ -525,16 +533,39 @@ function renderSetup(){
   $('#setup').innerHTML=`
     <div class="setup-grid">
       <div>
-        <div class="card">
+        <!-- 지금 뭘 해야 하는지가 항상 첫 번째 — ✓ 목록 아래에 두면 스크롤해야 보인다 -->
+        <div class="card next-card ${next.actions==='ready'?'ready':''}">
+          <div class="status-title big">${next.title}</div>
+          <div class="status-desc">${next.desc}</div>
+          ${next.actions==='prepare'?`<div class="choice">
+            ${[1,2,3,4].map(n=>`<button class="tbtn ${setupCamCount===n?'on':''}" data-cams="${n}">${n}대 촬영</button>`).join('')}
+            <button class="btn primary" id="prepFolders">작업 공간 준비</button>
+            ${cams.length?`<button class="btn" id="openRaw">영상 폴더 열기</button>`:''}
+          </div>`:''}
+          ${next.actions==='ready'?`<div class="choice">
+            <button class="btn primary big" id="goEdit">편집으로 이동</button>
+            <button class="btn" id="goCal">골대 위치 잡기</button>
+            <button class="btn" id="openRaw2">영상 폴더 열기</button>
+          </div>`:''}
+          ${next.actions==='refresh'?`<div class="choice"><button class="btn primary" id="refreshOnly">다시 확인</button></div>`:''}
+          ${next.actions==='recheck'?`<div class="choice">
+            ${blocking.includes('ffmpeg')?`<button class="btn primary" id="installFf">ffmpeg 설치하기</button>`:''}
+            <button class="btn" id="recheckEnv">직접 설치했습니다 · 다시 확인</button>
+          </div><pre class="inst-log" id="instLog" hidden></pre>`:''}
+        </div>
+
+        ${next.actions==='ready'?'':`<div class="card">
           <div class="row"><b>이렇게 진행됩니다</b><span class="mut">2시간 영상 기준 경기당 3~5분 정도 걸립니다.</span></div>
           <div class="steps3">
             <div><b>1</b> 카메라별로 <b>촬영본이 들어 있는 폴더</b>를 지정합니다. <span class="mut">복사하지 않고 그 자리에서 읽습니다.</span></div>
             <div><b>2</b> 골대가 화면 어디인지 한 번 그려줍니다. <span class="mut">(건너뛰어도 됩니다)</span></div>
             <div><b>3</b> 자동으로 찾은 장면을 확인·수정하고 내보냅니다.</div>
           </div>
-        </div>
-        <div class="card">
-          <div class="row"><b>작업 폴더</b><span class="mut">설정·결과물이 저장되는 곳입니다. 촬영본은 여기 없어도 됩니다.</span></div>
+        </div>`}
+
+        <details class="card" ${next.actions==='ready'?'':'open'}>
+          <summary><b>작업 폴더 · 환경 점검</b> <span class="mut">${blocking.length?`문제 ${blocking.length}건`:'모두 정상'}</span></summary>
+          <div class="row" style="margin-top:8px"><span class="mut" style="flex:1;font-size:12px">설정·결과물이 저장되는 곳입니다. 촬영본은 여기 없어도 됩니다.</span></div>
           <div class="row"><input id="rootIn" style="flex:1" value="${STATE.root}" readonly>
             <button class="btn" id="pickRoot">폴더 선택</button>
             <button class="btn" id="reloadState">새로고침</button></div>
@@ -544,26 +575,7 @@ function renderSetup(){
               <div><div class="status-title">${s.title}</div><div class="status-desc">${s.desc}</div></div>
             </div>`).join('')}
           </div>
-          <div class="next-box">
-            <div class="status-title">${next.title}</div>
-            <div class="status-desc">${next.desc}</div>
-            ${next.actions==='prepare'?`<div class="choice">
-              ${[1,2,3,4].map(n=>`<button class="tbtn ${setupCamCount===n?'on':''}" data-cams="${n}">${n}대 촬영</button>`).join('')}
-              <button class="btn primary" id="prepFolders">작업 공간 준비</button>
-              ${cams.length?`<button class="btn" id="openRaw">영상 폴더 열기</button>`:''}
-            </div>`:''}
-            ${next.actions==='ready'?`<div class="choice">
-              <button class="btn primary" id="goEdit">편집으로 이동</button>
-              <button class="btn" id="goCal">골대 위치 잡기</button>
-              <button class="btn" id="openRaw2">영상 폴더 열기</button>
-            </div>`:''}
-            ${next.actions==='refresh'?`<div class="choice"><button class="btn primary" id="refreshOnly">다시 확인</button></div>`:''}
-            ${next.actions==='recheck'?`<div class="choice">
-              ${blocking.includes('ffmpeg')?`<button class="btn primary" id="installFf">ffmpeg 설치하기</button>`:''}
-              <button class="btn" id="recheckEnv">직접 설치했습니다 · 다시 확인</button>
-            </div><pre class="inst-log" id="instLog" hidden></pre>`:''}
-          </div>
-        </div>
+        </details>
       </div>
       <div>
         <div class="card" id="camSourcesCard"></div>
@@ -581,7 +593,7 @@ function renderSetup(){
           <div class="row"><b>카메라 입력</b><span class="mut">${totalFiles}개 파일 · 전체 ${allFiles}개</span></div>
           ${ss.length>1?`<div class="row"><span class="mut">날짜 폴더</span><select id="setupSession">${ss.map(s=>`<option value="${s.id}" ${s.id===setupSession?'selected':''}>${s.label} · 영상 ${s.count||0}개</option>`).join('')}</select></div>`:''}
           ${cams.length?`<div class="cam-grid">${cams.map(c=>`<div class="cam-box"><b>${c.id}</b><div>${c.count}개 영상</div><div class="files">${c.files.length?c.files.join('<br>'):'비어 있음'}</div></div>`).join('')}</div>`
-            :'<div class="mut">아직 카메라 폴더가 없습니다. 촬영 방식 선택 후 작업 공간을 준비하세요.</div>'}
+            :'<div class="mut">아직 카메라 폴더가 없습니다. 오른쪽 위에서 카메라별 폴더를 지정하세요.</div>'}
         </div>
         <div class="card">
           <div class="row"><b>감지된 경기</b> ${STATE.rois_exists?'<span class="mut">ROI 저장됨</span>':'<span class="mut">ROI 미설정</span>'}</div>

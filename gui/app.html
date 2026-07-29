@@ -627,32 +627,35 @@ function renderSetup(){
               <rect x="46" y="46" width="328" height="158" rx="3" fill="#12181f" stroke="#3a4655" stroke-width="2"/>
               <line x1="210" y1="46" x2="210" y2="204" stroke="#3a4655" stroke-width="1.5"/>
               <circle cx="210" cy="125" r="26" fill="none" stroke="#3a4655" stroke-width="1.5"/>
-              <!-- 골대 -->
-              <rect x="38" y="107" width="8" height="36" fill="none" stroke="#e7ebf0" stroke-width="2.5"/>
-              <rect x="374" y="107" width="8" height="36" fill="none" stroke="#e7ebf0" stroke-width="2.5"/>
-              <!-- 시야: 채움만 겹치면 어느 카메라 것인지 안 읽힌다. 테두리로 구분한다. -->
-              <polygon points="34,214 378,58 378,198" fill="#4ea1ff" fill-opacity="0.09"
+              <!-- 시야: 각 카메라는 '자기 쪽' 골대를 본다. 그 골망이 흔들린 카메라가
+                   그 골 장면의 메인 앵글이 되기 때문. -->
+              <polygon points="110,218 24,64 252,40" fill="#4ea1ff" fill-opacity="0.10"
                        stroke="#4ea1ff" stroke-opacity="0.45" stroke-width="1" stroke-dasharray="4 3"/>
-              <polygon points="386,36 42,192 42,52" fill="#f0b429" fill-opacity="0.09"
+              <polygon points="310,32 396,186 168,210" fill="#f0b429" fill-opacity="0.10"
                        stroke="#f0b429" stroke-opacity="0.45" stroke-width="1" stroke-dasharray="4 3"/>
+              <!-- 골대: 담당 카메라 색 -->
+              <rect x="38" y="107" width="8" height="36" fill="none" stroke="#4ea1ff" stroke-width="3"/>
+              <rect x="374" y="107" width="8" height="36" fill="none" stroke="#f0b429" stroke-width="3"/>
               <!-- 카메라 -->
               <g>
-                <circle cx="34" cy="214" r="9" fill="#4ea1ff"/>
-                <text x="34" y="218" text-anchor="middle" font-size="10" fill="#0f1216" font-weight="700">1</text>
-                <text x="50" y="232" font-size="11" fill="#4ea1ff">cam1 · 대각선 코너</text>
+                <circle cx="110" cy="218" r="9" fill="#4ea1ff"/>
+                <text x="110" y="222" text-anchor="middle" font-size="10" fill="#0f1216" font-weight="700">1</text>
+                <text x="126" y="222" font-size="11" fill="#4ea1ff">cam1 → 왼쪽 골대 담당</text>
               </g>
               <g>
-                <circle cx="386" cy="36" r="9" fill="#f0b429"/>
-                <text x="386" y="40" text-anchor="middle" font-size="10" fill="#0f1216" font-weight="700">2</text>
-                <text x="370" y="22" font-size="11" fill="#f0b429" text-anchor="end">cam2 · 반대편 코너</text>
+                <circle cx="310" cy="32" r="9" fill="#f0b429"/>
+                <text x="310" y="36" text-anchor="middle" font-size="10" fill="#0f1216" font-weight="700">2</text>
+                <text x="294" y="36" font-size="11" fill="#f0b429" text-anchor="end">오른쪽 골대 담당 ← cam2</text>
               </g>
-              <text x="60" y="100" font-size="10" fill="#8b95a3">골대</text>
-              <text x="360" y="100" font-size="10" fill="#8b95a3" text-anchor="end">골대</text>
-              <text x="210" y="222" text-anchor="middle" font-size="10" fill="#5d6b7d">— 사이드라인 —</text>
+              <text x="210" y="240" text-anchor="middle" font-size="10" fill="#5d6b7d">
+                각 카메라는 자기 쪽 골대를 향합니다</text>
             </svg>
             <ol class="guide-list">
-              <li><b>양쪽 사이드라인의 대각선 코너</b>에 한 대씩.
-                한 대가 가린 장면을 다른 대가 봅니다. 한 대만 있어도 동작합니다.</li>
+              <li><b>각 카메라가 자기 쪽 골대를 보게 두세요.</b> 사이드라인에서 한 대는 왼쪽 골대,
+                다른 한 대는 오른쪽 골대 쪽으로. 골이 들어가면 <b>그 골대를 맡은 카메라</b>가 그
+                장면의 메인 앵글이 됩니다 — 가까운 쪽이 골문 앞을 제일 잘 잡으니까요.
+                한 대만 있어도 동작합니다.</li>
+              <li><b>서로 대각선</b>으로 두면 한 대가 가린 장면을 다른 대가 봅니다.</li>
               <li><b>펜스에 클램프로 물리세요.</b> 삼각대는 좁은 코트에서 위험하고 자리를 차지합니다.
                 거창한 장비 없이 있는 구조물에 물리는 게 낫습니다.</li>
               <li><b>한 번 놓으면 경기 내내 건드리지 마세요.</b>

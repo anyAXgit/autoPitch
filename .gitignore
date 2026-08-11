@@ -34,3 +34,11 @@ packaging/vendor/
 # 사용자 데이터 — 촬영본 파일명·시각이 그대로 들어간다
 net_rois.json
 data/train_events.jsonl
+
+# 영상 제작물 — 유튜브 대본·b-roll·그래픽 생성 스크립트. 제품이 아니다.
+docs/
+tools/make_graphic_*.py
+tools/make_outro_analysis.py
+tools/append_outro.py
+tools/graphic_kit.py
+requirements-tools.txt

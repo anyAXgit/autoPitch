@@ -136,20 +136,44 @@ def sign(app, identity):
     print("  서명 검증 통과")
 
 
-def notarize(app, profile=NOTARY_PROFILE):
+def notary_auth():
+    """How to prove who we are to notarytool.
+
+    A keychain profile is the good answer on a developer's own Mac and no answer
+    at all on a build runner, where no keychain outlives the job. So an App Store
+    Connect key wins when its three env vars are present, and the profile is the
+    fallback.
+    """
+    key = os.environ.get("AUTOPITCH_NOTARY_KEY")
+    key_id = os.environ.get("AUTOPITCH_NOTARY_KEY_ID")
+    issuer = os.environ.get("AUTOPITCH_NOTARY_ISSUER")
+    if key or key_id or issuer:
+        missing = [n for n, v in (("KEY", key), ("KEY_ID", key_id),
+                                  ("ISSUER", issuer)) if not v]
+        if missing:
+            raise BuildError("App Store Connect 키 설정이 불완전합니다. 빠진 환경변수: "
+                             + ", ".join("AUTOPITCH_NOTARY_" + m for m in missing))
+        if not os.path.isfile(key):
+            raise BuildError(f"AUTOPITCH_NOTARY_KEY 파일이 없습니다: {key}")
+        return ["--key", key, "--key-id", key_id, "--issuer", issuer], "App Store Connect 키"
+    return ["--keychain-profile", NOTARY_PROFILE], f"키체인 프로필 {NOTARY_PROFILE}"
+
+
+def notarize(app):
     """Submit to Apple, wait for the verdict, staple it into the bundle.
 
     Stapling is what makes the app open on a machine that is offline or behind a
     filter: without it Gatekeeper has to ask Apple at launch time.
     """
+    auth, how = notary_auth()
     zip_path = app + ".notarize.zip"
     # ditto, not zip: the bundle's symlinks and permission bits have to survive.
     run(["ditto", "-c", "-k", "--keepParent", app, zip_path])
     try:
-        print(f"공증 제출 (프로필 {profile}) — 보통 1~5분 걸립니다")
+        print(f"공증 제출 ({how}) — 보통 1~5분 걸립니다")
         p = subprocess.run(
             ["xcrun", "notarytool", "submit", zip_path,
-             "--keychain-profile", profile, "--wait", "--output-format", "json"],
+             *auth, "--wait", "--output-format", "json"],
             capture_output=True, text=True)
         try:
             res = json.loads(p.stdout or "{}")
@@ -159,9 +183,8 @@ def notarize(app, profile=NOTARY_PROFILE):
             sid = res.get("id")
             detail = p.stderr.strip() or p.stdout.strip()
             if sid:
-                log = subprocess.run(
-                    ["xcrun", "notarytool", "log", sid, "--keychain-profile", profile],
-                    capture_output=True, text=True).stdout
+                log = subprocess.run(["xcrun", "notarytool", "log", sid, *auth],
+                                     capture_output=True, text=True).stdout
                 detail = log.strip() or detail
             raise BuildError(f"공증 거부됨 ({res.get('status', '알 수 없음')}):\n{detail}")
         print(f"  공증 승인 — {res.get('id')}")

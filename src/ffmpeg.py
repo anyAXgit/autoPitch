@@ -99,6 +99,29 @@ def probe(args, **kw):
     return subprocess.run([ffprobe(), "-v", "error", *args], **kw)
 
 
+# --- frame-rate mode ---------------------------------------------------------
+# `-vsync` was deprecated in ffmpeg 5.1 in favour of `-fps_mode`, warned about
+# for years, and is gone in 9.x -- where it is not a warning but a failed
+# command. We cannot pick one spelling: the user brings their own ffmpeg, and
+# both an Ubuntu LTS 4.x and a brand-new 9.x are things people actually have.
+# So ask this ffmpeg, once, the same way the encoder probe does.
+_FPS_MODE = {"cfr": "cfr", "0": "passthrough"}
+
+
+def fps_mode_args(mode):
+    """`-fps_mode <x>` on ffmpeg that knows it, `-vsync <x>` on ffmpeg that
+    doesn't. `mode` is the old -vsync spelling ("cfr" or "0")."""
+    if "fps_mode" not in _CACHE:
+        _CACHE["fps_mode"] = subprocess.run([
+            ffmpeg(), "-hide_banner", "-loglevel", "error",
+            "-f", "lavfi", "-i", "color=c=black:s=32x32:d=0.1:r=30",
+            "-fps_mode", "cfr", "-frames:v", "1", "-f", "null", "-",
+        ], capture_output=True, text=True).returncode == 0
+    if _CACHE["fps_mode"]:
+        return ["-fps_mode", _FPS_MODE[mode]]
+    return ["-vsync", mode]
+
+
 # --- hardware ---------------------------------------------------------------
 # (encoder, extra args). Ordered by platform likelihood; the first that both
 # lists AND survives a probe encode wins.

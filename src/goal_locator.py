@@ -15,7 +15,7 @@ import os
 import subprocess
 
 import numpy as np
-from src.ffmpeg import ffmpeg, ffprobe, hwaccel_args
+from src.ffmpeg import ffmpeg, ffprobe, fps_mode_args, hwaccel_args
 
 
 def load_rois(path):
@@ -97,12 +97,12 @@ def _roi_gray_keyframes(source, roi, px):
     vf = (f"crop=iw*{w}:ih*{h}:iw*{x}:ih*{y},scale={px}:{px},format=gray,"
           f"showinfo")
     def run(hw):
-        # -vsync 0: without it ffmpeg DUPLICATES the sparse keyframes back up to
+        # passthrough: without it ffmpeg DUPLICATES the sparse keyframes back up to
         # the stream fps, which zeroes most frame diffs (MAD~0 -> everything
         # "prominent") and silently defeats the keyframe fast path.
         return subprocess.run(
             [ffmpeg(), "-v", "info", *([*hwaccel_args()] if hw else []),
-             "-skip_frame", "nokey", "-i", source, "-vsync", "0",
+             "-skip_frame", "nokey", "-i", source, *fps_mode_args("0"),
              "-vf", vf, "-f", "rawvideo", "-pix_fmt", "gray", "-"],
             capture_output=True, check=True,
         )

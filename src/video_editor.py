@@ -2,7 +2,8 @@ import os
 import json
 import subprocess
 
-from src.ffmpeg import concat_path, ffmpeg, ffprobe, h264_args, run as _ffmpeg
+from src.ffmpeg import (concat_path, ffmpeg, ffprobe, fps_mode_args, h264_args,
+                        run as _ffmpeg)
 
 
 def _ensure_filters():
@@ -50,7 +51,7 @@ def render_segment(seg, fps, out_path, width, height, vargs=None):
     vf = ",".join(filters)
     _ffmpeg([
         "-ss", str(seg["src_in"]), "-i", seg["src"], "-t", str(dur),
-        "-vf", vf, "-vsync", "cfr", "-r", str(fps),
+        "-vf", vf, *fps_mode_args("cfr"), "-r", str(fps),
         *(vargs or h264_args()),
         "-c:a", "aac", "-ar", "48000", out_path,
     ])

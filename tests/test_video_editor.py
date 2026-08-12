@@ -417,3 +417,24 @@ def test_render_goal_label_overlays_and_preserves_duration(tmp_path):
     assert os.path.exists(labeled[0])
     assert abs(probe_duration(labeled[0]) - d_plain) < 0.3   # overlay kept length
     assert abs(probe_duration(labeled[0]) - span) < 0.6
+
+
+# ---- frame-rate mode flag ----
+# `-vsync` is gone in ffmpeg 9 and `-fps_mode` does not exist before 5.1, so the
+# spelling has to come from the ffmpeg actually installed -- not from a constant.
+
+def test_fps_mode_uses_the_new_spelling_when_ffmpeg_knows_it():
+    from src import ffmpeg as F
+    F._CACHE["fps_mode"] = True
+    assert F.fps_mode_args("cfr") == ["-fps_mode", "cfr"]
+    assert F.fps_mode_args("0") == ["-fps_mode", "passthrough"]
+
+
+def test_fps_mode_falls_back_on_ffmpeg_that_predates_it():
+    from src import ffmpeg as F
+    F._CACHE["fps_mode"] = False
+    try:
+        assert F.fps_mode_args("cfr") == ["-vsync", "cfr"]
+        assert F.fps_mode_args("0") == ["-vsync", "0"]
+    finally:
+        F._CACHE.pop("fps_mode", None)

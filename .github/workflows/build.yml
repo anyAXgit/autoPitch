@@ -50,7 +50,22 @@ jobs:
 
       - name: Install ffmpeg (Windows)
         if: runner.os == 'Windows'
-        run: choco install ffmpeg -y --no-progress
+        shell: bash
+        run: |
+          set -uo pipefail
+          # community.chocolatey.org returns 503 often enough to matter, and choco
+          # reports success having installed nothing -- so the missing binary
+          # surfaced a minute later as fifty unrelated test failures instead of
+          # "ffmpeg is not here". Retry the outage, and make the step itself the
+          # place that fails when it is still missing.
+          export PATH="/c/ProgramData/chocolatey/bin:$PATH"
+          for i in 1 2 3; do
+            choco install ffmpeg -y --no-progress || true
+            if ffmpeg -version >/dev/null 2>&1; then break; fi
+            echo "::warning::ffmpeg 설치 실패 ($i/3) — 20초 후 재시도"
+            sleep 20
+          done
+          ffmpeg -version | head -1
 
       - name: Smoke test before packaging
         run: pytest -q

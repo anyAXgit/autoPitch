@@ -977,9 +977,54 @@ def grab_frame(rel, t):
     return tmp
 
 
+# ---- request guard ----
+# Binding 127.0.0.1 keeps other machines out. It does not keep other *pages*
+# out: any site the user has open in another tab can POST here, and the reply
+# being unreadable does not undo the effect -- /api/install_ffmpeg spawns a
+# package manager, /api/root moves the workspace, /api/settings rewrites
+# config.yaml. A DNS-rebinding attacker gets the replies too. Three header
+# checks close both holes without the front end having to change.
+LOOPBACK = {"127.0.0.1", "localhost", "::1"}
+
+
+def is_loopback(value):
+    """True when `value` -- a Host authority or a full Origin URL -- names this
+    machine. `urlsplit` handles the bracket form, so `[::1]:8756` works too."""
+    try:
+        return (urllib.parse.urlsplit(
+            value if "//" in value else "//" + value).hostname or "") in LOOPBACK
+    except ValueError:
+        return False
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
+
+    def _guard(self):
+        """Answer and return True when a request did not come from our own page.
+
+        Host            the browser must have dialled loopback, not a name that
+                        merely resolves here -- that is what rebinding does.
+        Origin          sent on every cross-origin POST for a decade now.
+        Sec-Fetch-Site  sent on *every* request kind, including `<img src>`,
+                        which carries no Origin at all.
+
+        A request with neither header is local by construction: a web page
+        cannot make the browser leave them off. So curl and scripts still work.
+        """
+        if not is_loopback(self.headers.get("Host", "")):
+            self._err("host not allowed", 403)
+            return True
+        origin = self.headers.get("Origin")
+        if origin and not is_loopback(origin):
+            self._err("cross-origin request refused", 403)
+            return True
+        site = self.headers.get("Sec-Fetch-Site")
+        if site and site not in ("same-origin", "none"):
+            self._err("cross-site request refused", 403)
+            return True
+        return False
 
     def _json(self, obj, code=200):
         body = json.dumps(obj).encode()
@@ -1032,6 +1077,8 @@ class Handler(BaseHTTPRequestHandler):
 
     # ---- routing ----
     def do_GET(self):
+        if self._guard():
+            return
         u = urllib.parse.urlparse(self.path)
         q = urllib.parse.parse_qs(u.query)
         try:
@@ -1120,6 +1167,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._err(f"{type(e).__name__}: {e}", 500)
 
     def do_POST(self):
+        if self._guard():
+            return
         u = urllib.parse.urlparse(self.path)
         q = urllib.parse.parse_qs(u.query)
         try:

@@ -29,6 +29,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# 골 라벨링(config.yaml 의 vision.enabled). 코어 파이프라인은 이게 없어도 돈다 --
+# src/goal_confirmer 가 이 기능을 켤 때만 임포트한다.
+vision = ["anthropic>=0.40"]
 # ⚠️ AGPL-3.0. 코어와 배포 앱은 이걸 쓰지 않는다. requirements-optional.txt 참고.
 analysis = ["ultralytics>=8.3"]
 dev = ["pytest>=8.0", "soundfile>=0.12", "pyinstaller>=6.16"]

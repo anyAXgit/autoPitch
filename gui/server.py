@@ -781,10 +781,7 @@ def _decode_window(path, start, dur, sr):
     return np.frombuffer(out, dtype="<f4")
 
 
-class UserError(Exception):
-    """A message written for the user. Shown as-is, without the class name --
-    "FileNotFoundError: 원본 영상을..." reads like a crash; the sentence alone
-    reads like an instruction."""
+from src.errors import UserError  # noqa: E402,F401  (re-exported: raised below)
 
 
 JOBS = {}       # render job_id -> {"status": running|done|error, "progress": [i, n], ...}

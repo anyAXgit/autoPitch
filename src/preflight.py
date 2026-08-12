@@ -96,10 +96,22 @@ def check_disk(root, need_gb=10):
 
 
 def check_vision_key(root):
-    """Optional -- the pipeline runs fine without it, so never a hard failure."""
+    """Optional -- the pipeline runs fine without it, so never a hard failure.
+
+    Checks the package as well as the key: having one without the other fails
+    only once a render is already under way, and this screen is where that is
+    still cheap to notice.
+    """
     have = bool(os.environ.get("ANTHROPIC_API_KEY")) or os.path.exists(
         os.path.join(root, "data", "_gui", "anthropic_key.txt"))
     if have:
+        try:
+            import anthropic  # noqa: F401
+        except ImportError:
+            return {"id": "vision", "ok": True, "warn": True,
+                    "title": "AI 골 라벨링 (선택)",
+                    "desc": "API 키는 있는데 anthropic 패키지가 없습니다. 켜면 그 단계에서 멈춥니다.",
+                    "fix": "pip install anthropic"}
         return {"id": "vision", "ok": True, "title": "AI 골 라벨링 (선택)",
                 "desc": "API 키를 찾았습니다. 후보에 골 여부를 기록합니다."}
     return {"id": "vision", "ok": True, "warn": True, "title": "AI 골 라벨링 (선택)",

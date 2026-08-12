@@ -38,10 +38,9 @@
 macOS / Windows 빌드를 받습니다. 실행하면 홈에 `~/autoPitch` 작업 공간이 생기고
 브라우저가 열립니다. 첫 화면이 환경을 점검합니다.
 
-> **아직 코드 서명 전이라 첫 실행에 한 번 막힙니다.**
-> macOS: 실행이 차단되면 시스템 설정 → 개인정보 보호 및 보안 을 열고 아래로
-> 내려가 `확인 없이 열기`. (macOS 15부터는 우클릭 → 열기 로 넘어가지 않습니다.)
-> Windows: SmartScreen 창에서 `추가 정보` → `실행`.
+> **macOS 빌드는 Developer ID 로 서명·공증돼 있어 그냥 열립니다.**
+> **Windows 빌드는 아직 서명 전**이라 SmartScreen 경고가 뜹니다 —
+> `추가 정보` → `실행` 을 눌러 주세요. EV 인증서가 연 30만원대라 미뤄둔 상태입니다.
 
 **소스에서**
 
@@ -172,6 +171,8 @@ ROI 탭의 `좌우 반전`은 파일별 보기 설정이다. 같은 날짜의 �
 이슈 템플릿에 **"다른 구장에서 돌려봤습니다"** 가 따로 있습니다 — 어떤 배치에서
 되고 안 되는지가 이 프로젝트에 제일 필요한 데이터입니다.
 
+보안 취약점은 공개 이슈 대신 [SECURITY.md](SECURITY.md) 의 절차로 알려주세요.
+
 변경 내역은 [CHANGELOG.md](CHANGELOG.md).
 
 ## 라이선스
@@ -220,11 +221,21 @@ LGPL 번들은 "느려짐"이 아니라 **아예 못 쓰는 기기**를 만든�
 빌드해야 하고 특허 관계도 단순하지 않다. GPL 번들은 동작하지만 MIT 프로젝트의
 릴리스에 GPL 바이너리를 넣고 그 소스 제공 의무를 지는 일이다.
 
-한편 앱은 아직 양쪽 OS에서 **서명되어 있지 않다**(adhoc). 어느 쪽이든 첫 실행에
-경고를 한 번 거치므로, 번들해도 "더블클릭하면 그냥 됨"은 성립하지 않는다.
-그 대가로 GPL을 질 이유가 없다고 판단했다.
+서명 여부와도 무관하다. macOS 빌드는 Developer ID 로 서명·공증되니 그냥 열리고,
+그건 ffmpeg 를 넣든 말든 같다. Windows 는 아직 미서명이라 어차피 경고를 한 번
+거치므로, 번들해서 "더블클릭하면 그냥 됨"을 사는 것도 아니다.
 
-직접 번들하려면:
+서명·공증까지 한 번에:
+
+```bash
+./.venv/bin/python packaging/build.py --clean --sign --notarize
+```
+
+`--sign` 은 설치된 Developer ID 인증서를 자동으로 찾고, `--notarize` 는 키체인
+프로필(`autopitch-notary`)이나 App Store Connect 키(`AUTOPITCH_NOTARY_KEY` 등
+환경변수)로 인증한다. 태그를 밀면 CI 가 같은 일을 한다.
+
+ffmpeg 를 직접 번들하려면:
 
 ```bash
 ./.venv/bin/python packaging/build.py --vendor-ffmpeg $(which ffmpeg) $(which ffprobe)

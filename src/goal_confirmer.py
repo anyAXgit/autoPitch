@@ -1,18 +1,21 @@
-"""Vision goal-confirmation seam (V3).
+"""Vision goal-labelling seam.
 
-`confirm_goals` filters audio-detected peaks down to those a classifier judges to
-be real goal celebrations. The classifier is injectable so tests can stub it; the
-default real classifier (`make_vlm_classifier`) asks a Claude VLM about the sparse
-per-goal frames from frame_extractor.
+A Claude VLM is shown the sparse per-goal frames from frame_extractor and asked
+whether a goal was scored. The classifier is injectable so tests can stub it.
 
-Design: this only ever *prunes* peaks (raises precision). Recall is raised
-separately by lowering `peak.threshold_k` so audio over-proposes and this filter
-removes the junk. A goal with no extracted frames is kept (don't drop on missing
-evidence).
+`label_goals` is what the pipeline uses: it records each verdict as data and
+drops nothing. Loud non-goals -- saves, near misses -- are wanted content in a
+highlight reel, and the model can be wrong, so what to keep stays a human
+decision in the editor.
+
+`confirm_goals` is the older path that prunes peaks instead. Nothing calls it
+but its own tests; it is kept as the seam for a pipeline that wants precision
+over recall.
 """
 import base64
 import json
 import os
+from src.errors import UserError
 from src.ffmpeg import ffmpeg
 
 _PROMPT = (
@@ -118,6 +121,23 @@ _NET_PROMPT = (
 _MAX_TOKENS = 4096
 
 
+def _client():
+    """An Anthropic client, or a sentence saying how to get one.
+
+    `anthropic` is an optional extra -- the pipeline runs without it and only
+    this step needs it -- so a plain ImportError here reads like a broken
+    install rather than a feature the user has not opted into yet.
+    """
+    try:
+        import anthropic
+    except ImportError:
+        raise UserError(
+            "골 라벨링에는 anthropic 패키지가 필요합니다.\n"
+            "  설치: pip install anthropic\n"
+            "  끄려면 config.yaml 의 vision.enabled 를 false 로 두세요.") from None
+    return anthropic.Anthropic()
+
+
 def _verdict(resp):
     """Read {"is_goal", "confidence"} out of a reply.
 
@@ -174,9 +194,7 @@ def make_net_classifier(cfg, client=None):
     """Tier-1 judge for ROI-only candidates: sends 3 net close-ups to a VLM and
     asks specifically about a ball hitting/entering the net (not celebrations --
     the crop IS the net, so the question can be concrete)."""
-    if client is None:
-        import anthropic
-        client = anthropic.Anthropic()
+    client = client or _client()
 
     def classify(crop_paths):
         if not crop_paths:
@@ -237,9 +255,7 @@ def make_vlm_classifier(cfg, client=None, max_frames=10):
     a Claude VLM. `client` is injectable; by default an anthropic.Anthropic() is
     created lazily (needs credentials). Frames are subsampled to `max_frames` to
     bound tokens/cost."""
-    if client is None:
-        import anthropic
-        client = anthropic.Anthropic()
+    client = client or _client()
 
     def classify(frames):
         if not frames:

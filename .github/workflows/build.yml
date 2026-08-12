@@ -21,6 +21,12 @@ jobs:
           - os: windows-latest
             name: windows-x64
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    # Hoisted to the job so the signing steps can test for it: a step's own `env:`
+    # is not visible to that step's `if:`.
+    env:
+      HAS_SIGNING: ${{ secrets.MACOS_CERT_P12 != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -49,16 +55,76 @@ jobs:
       - name: Smoke test before packaging
         run: pytest -q
 
-      - name: Build (ffmpeg 미포함)
-        if: ${{ !inputs.vendor_ffmpeg }}
-        run: python packaging/build.py --clean
+      # Secrets are absent on forks and on any clone that has not set them up,
+      # and that has to stay a working build rather than a failed one -- so the
+      # signing steps are skipped and the build falls through to unsigned.
+      - name: Import signing certificate
+        if: runner.os == 'macOS' && env.HAS_SIGNING == 'true'
+        shell: bash
+        env:
+          CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"   # don't relock mid-build
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          # Prepend, don't replace: dropping the login keychain takes the system
+          # roots out of the search path and the chain stops resolving.
+          security list-keychains -d user -s "$KEYCHAIN" \
+            $(security list-keychains -d user | tr -d '"')
 
-      - name: Build (ffmpeg 포함)
-        if: ${{ inputs.vendor_ffmpeg }}
+          printf '%s' "$CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" -P "$CERT_PASSWORD" \
+            -T /usr/bin/codesign -T /usr/bin/security
+          rm -f "$RUNNER_TEMP/cert.p12"
+
+          # A Developer ID certificate issued since 2021 chains through the G2
+          # intermediate, and macOS ships only the 2012 one -- without this the
+          # identity imports fine and then fails to sign with "unable to build
+          # chain to self-signed root". Xcode carries the file.
+          G2="$(find /Applications/Xcode*.app -name DeveloperIDCA-G2.cer 2>/dev/null | head -1)"
+          if [ -z "$G2" ]; then
+            echo "::error::G2 중간 인증서를 러너에서 찾지 못했습니다"; exit 1
+          fi
+          security import "$G2" -k "$KEYCHAIN"
+
+          # Without this codesign waits on a GUI prompt no one is there to answer
+          # and the job hangs until it times out.
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" > /dev/null
+
+          security find-identity -v -p codesigning "$KEYCHAIN"
+          echo "SIGNING=true" >> "$GITHUB_ENV"
+
+      - name: Write notarization key
+        if: runner.os == 'macOS' && env.SIGNING == 'true'
         shell: bash
         run: |
-          python packaging/build.py --clean \
-            --vendor-ffmpeg "$(command -v ffmpeg)" "$(command -v ffprobe)"
+          set -euo pipefail
+          printf '%s' "${{ secrets.MACOS_NOTARY_KEY_P8 }}" | base64 --decode \
+            > "$RUNNER_TEMP/notary.p8"
+          echo "AUTOPITCH_NOTARY_KEY=$RUNNER_TEMP/notary.p8" >> "$GITHUB_ENV"
+          echo "AUTOPITCH_NOTARY_KEY_ID=${{ secrets.MACOS_NOTARY_KEY_ID }}" >> "$GITHUB_ENV"
+          echo "AUTOPITCH_NOTARY_ISSUER=${{ secrets.MACOS_NOTARY_ISSUER_ID }}" >> "$GITHUB_ENV"
+
+      - name: Build
+        shell: bash
+        run: |
+          set -euo pipefail
+          ARGS=(--clean)
+          if [ "${VENDOR:-false}" = "true" ]; then
+            ARGS+=(--vendor-ffmpeg "$(command -v ffmpeg)" "$(command -v ffprobe)")
+          fi
+          if [ "${SIGNING:-false}" = "true" ]; then
+            ARGS+=(--sign --notarize)
+          fi
+          echo "build.py ${ARGS[*]}"
+          python packaging/build.py "${ARGS[@]}"
+        env:
+          VENDOR: ${{ inputs.vendor_ffmpeg }}
 
       - name: Verify the packaged app actually starts
         shell: bash
@@ -95,6 +161,16 @@ jobs:
           path: dist/autoPitch-${{ matrix.name }}.zip
           retention-days: 14
 
+      # Runners are torn down anyway, but a failed job leaves the key sitting in
+      # a keychain for as long as the machine lives. `always()` so a build that
+      # dies mid-signing still cleans up after itself.
+      - name: Discard signing material
+        if: always() && runner.os == 'macOS'
+        shell: bash
+        run: |
+          security delete-keychain "$RUNNER_TEMP/signing.keychain-db" 2>/dev/null || true
+          rm -f "$RUNNER_TEMP/notary.p8" "$RUNNER_TEMP/cert.p12"
+
   release:
     needs: build
     if: startsWith(github.ref, 'refs/tags/v')
@@ -119,4 +195,6 @@ jobs:
             **ffmpeg 미포함 빌드입니다.** 없으면 첫 화면 안내대로 설치해 주세요:
             `brew install ffmpeg` (macOS) / `winget install --id Gyan.FFmpeg` (Windows)
 
-            macOS 는 서명되지 않은 앱이라 첫 실행 시 우클릭 → 열기 가 필요합니다.
+            macOS 빌드는 Developer ID 로 서명·공증되어 있어 그냥 열립니다.
+            Windows 빌드는 아직 서명 전이라 SmartScreen 경고가 뜹니다 —
+            `추가 정보` → `실행` 을 눌러 주세요.

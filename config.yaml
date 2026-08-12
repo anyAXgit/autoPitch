@@ -27,7 +27,7 @@ vision:                 # goal LABELLING via sparse frames -- marks which clips 
   post_sec: 5          # covers ball-in + walk-back to center (restart = goal cue)
   fps: 2
   frame_height: 360
-  model: claude-opus-4-8   # VLM for "goal celebration?" (claude-haiku-4-5 = cheaper)
+  model: claude-sonnet-5   # VLM for "goal celebration?" (claude-haiku-4-5 = cheaper)
   min_confidence: 0.0      # keep a goal only if verdict confidence >= this (e.g. 0.9 = stricter)
 locate:                   # net-ROI goal localization (fixed cameras); off by default
   enabled: true

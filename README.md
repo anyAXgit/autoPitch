@@ -93,7 +93,7 @@ Gyan.FFmpeg` / `apt install ffmpeg`).
 모델의 판정도 틀릴 수 있어서, 최종 판단은 편집기에서 사람이 한다. 정렬·검토와
 나중의 학습 데이터로 쓰는 값이다.
 
-`vision.model` 기본값은 `claude-opus-4-8`(`claude-haiku-4-5` 로 바꾸면 싸진다),
+`vision.model` 기본값은 `claude-sonnet-5`(`claude-haiku-4-5` 로 바꾸면 싸진다),
 `vision.min_confidence` 를 올리면(예: 0.9) 그 아래 확신도는 골 아님으로 적는다.
 
 키와 패키지가 따로 필요하다:

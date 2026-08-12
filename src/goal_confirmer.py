@@ -109,6 +109,33 @@ _NET_PROMPT = (
     'Reply with ONLY a JSON object: {"is_goal": true|false, "confidence": 0.0-1.0}.'
 )
 
+# The verdict is ~40 tokens, but current models think before answering and
+# `max_tokens` caps thinking and reply together. 1024 was enough on a model where
+# thinking stayed off unless asked for; on one where it is on by default the reply
+# can be cut off before its closing brace -- which `_verdict` cannot tell apart
+# from a model that answered in prose. Headroom costs nothing: only generated
+# tokens are billed.
+_MAX_TOKENS = 4096
+
+
+def _verdict(resp):
+    """Read {"is_goal", "confidence"} out of a reply.
+
+    Anything unreadable -- truncated, prose-wrapped, refused -- keeps the clip at
+    zero confidence. Dropping a real goal is the expensive mistake; a clip that
+    should not be there is one the editor removes in a click.
+    """
+    if resp.stop_reason == "max_tokens":
+        return {"is_goal": True, "confidence": 0.0}
+    text = next((b.text for b in resp.content if b.type == "text"), "").strip()
+    try:
+        start, end = text.index("{"), text.rindex("}") + 1
+        data = json.loads(text[start:end])
+        return {"is_goal": bool(data.get("is_goal")),
+                "confidence": float(data.get("confidence", 0.0))}
+    except (ValueError, json.JSONDecodeError):
+        return {"is_goal": True, "confidence": 0.0}
+
 
 def net_crops(source, t, roi, out_dir, margin=0.6):
     """Extract net close-up JPGs around `t` (source timeline) for the Tier-1
@@ -160,17 +187,11 @@ def make_net_classifier(cfg, client=None):
                    for p in crop_paths]
         content.append({"type": "text", "text": _NET_PROMPT})
         resp = client.messages.create(
-            model=cfg.locate.scan_verify_model or cfg.vision.model, max_tokens=1024,
+            model=cfg.locate.scan_verify_model or cfg.vision.model,
+            max_tokens=_MAX_TOKENS,
             messages=[{"role": "user", "content": content}],
         )
-        text = next((b.text for b in resp.content if b.type == "text"), "").strip()
-        try:
-            start, end = text.index("{"), text.rindex("}") + 1
-            data = json.loads(text[start:end])
-            return {"is_goal": bool(data.get("is_goal")),
-                    "confidence": float(data.get("confidence", 0.0))}
-        except (ValueError, json.JSONDecodeError):
-            return {"is_goal": True, "confidence": 0.0}
+        return _verdict(resp)
 
     return classify
 
@@ -233,17 +254,9 @@ def make_vlm_classifier(cfg, client=None, max_frames=10):
         content.append({"type": "text", "text": _PROMPT})
         resp = client.messages.create(
             model=cfg.vision.model,
-            max_tokens=1024,
+            max_tokens=_MAX_TOKENS,
             messages=[{"role": "user", "content": content}],
         )
-        text = next((b.text for b in resp.content if b.type == "text"), "").strip()
-        try:
-            start, end = text.index("{"), text.rindex("}") + 1
-            data = json.loads(text[start:end])
-            return {"is_goal": bool(data.get("is_goal")),
-                    "confidence": float(data.get("confidence", 0.0))}
-        except (ValueError, json.JSONDecodeError):
-            # Unparseable response: keep the goal rather than silently dropping it.
-            return {"is_goal": True, "confidence": 0.0}
+        return _verdict(resp)
 
     return classify

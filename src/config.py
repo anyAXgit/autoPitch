@@ -11,7 +11,7 @@ class VisionConfig:
     post_sec: float = 5.0     # ... to T+post_sec (covers ball-in + walk-back to restart)
     fps: float = 2.0          # sampling rate within that window
     frame_height: int = 360   # JPG height (width auto, aspect-preserved)
-    model: str = "claude-opus-4-8"   # VLM used to judge "goal celebration?"
+    model: str = "claude-sonnet-5"   # VLM used to judge "goal celebration?"
     min_confidence: float = 0.0   # keep a goal only if verdict confidence >= this (0 = off)
 
 

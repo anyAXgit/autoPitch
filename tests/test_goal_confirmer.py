@@ -1,5 +1,5 @@
 from src.config import Config, VisionConfig
-from src.goal_confirmer import confirm_goals
+from src.goal_confirmer import _verdict, confirm_goals
 
 
 def _drop_all(frames):
@@ -92,3 +92,46 @@ def test_confirm_roi_clips_prunes_only_roi_only(monkeypatch, tmp_path):
     assert out["clips"][1]["roi_verdict"]["is_goal"] is True
     assert [c["T"] for c in out["roi_rejected"]] == [90.0]   # negative label surfaced
     assert out["roi_rejected"][0]["roi_verdict"]["is_goal"] is False
+
+
+# ---- reading the model's reply ----
+# The pipeline never sees these directly, but every verdict passes through here:
+# a reply we misread is a goal silently dropped or a junk clip silently kept.
+
+class _Blk:
+    def __init__(self, text): self.type, self.text = "text", text
+
+
+class _Resp:
+    def __init__(self, text, stop_reason="end_turn"):
+        self.content, self.stop_reason = [_Blk(text)], stop_reason
+
+
+def test_verdict_reads_a_plain_json_reply():
+    v = _verdict(_Resp('{"is_goal": false, "confidence": 0.82}'))
+    assert v == {"is_goal": False, "confidence": 0.82}
+
+
+def test_verdict_digs_json_out_of_prose():
+    v = _verdict(_Resp('Sure — here:\n{"is_goal": true, "confidence": 0.4}\nHope that helps.'))
+    assert v == {"is_goal": True, "confidence": 0.4}
+
+
+def test_truncated_reply_keeps_the_clip():
+    """Thinking can eat the whole budget and cut the reply before its closing
+    brace. That is not a 'no' -- the model never got to answer."""
+    v = _verdict(_Resp('{"is_goal": fal', stop_reason="max_tokens"))
+    assert v == {"is_goal": True, "confidence": 0.0}
+
+
+def test_truncation_is_caught_before_parsing():
+    """A reply cut off after a complete-looking object still parsed fine, so the
+    stop_reason check has to come first or a partial verdict reads as a real one."""
+    v = _verdict(_Resp('{"is_goal": false, "confidence": 0.9} and furthermore',
+                       stop_reason="max_tokens"))
+    assert v["is_goal"] is True
+
+
+def test_unparseable_reply_keeps_the_clip():
+    v = _verdict(_Resp("I can't tell from these frames."))
+    assert v == {"is_goal": True, "confidence": 0.0}

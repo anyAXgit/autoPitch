@@ -15,7 +15,7 @@ import shutil
 import subprocess
 import sys
 
-from PIL import Image
+from PIL import Image, ImageDraw
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ICON_DIR = os.path.join(HERE, "icon")
@@ -24,6 +24,28 @@ SRC = os.path.join(ICON_DIR, "icon.png")
 # macOS asks for each size at 1x and 2x; Windows takes them all in one file.
 MAC_POINTS = (16, 32, 128, 256, 512)
 WIN_SIZES = (16, 24, 32, 48, 64, 128, 256)
+
+# Apple's macOS icon grid: on a 1024 canvas the artwork is an 824 rounded square,
+# so ~10% of every edge is transparent. That margin is not decoration -- it is
+# what makes an icon the same visual size as the ones beside it in the Dock. A
+# full-bleed square reads as oversized and square-cornered next to everything
+# else. Windows has the opposite convention and stays full-bleed below.
+MAC_CANVAS, MAC_SHAPE, MAC_RADIUS = 1024, 824, 185.4
+_SS = 4          # supersample the mask; a 185px radius aliases badly otherwise
+
+
+def _rounded(art):
+    """`art` inset into the macOS icon grid, corners cut, edges transparent."""
+    shape = art.resize((MAC_SHAPE, MAC_SHAPE), Image.LANCZOS)
+    mask = Image.new("L", (MAC_SHAPE * _SS, MAC_SHAPE * _SS), 0)
+    ImageDraw.Draw(mask).rounded_rectangle(
+        (0, 0, MAC_SHAPE * _SS - 1, MAC_SHAPE * _SS - 1),
+        radius=MAC_RADIUS * _SS, fill=255)
+    shape.putalpha(mask.resize((MAC_SHAPE, MAC_SHAPE), Image.LANCZOS))
+    canvas = Image.new("RGBA", (MAC_CANVAS, MAC_CANVAS), (0, 0, 0, 0))
+    off = (MAC_CANVAS - MAC_SHAPE) // 2
+    canvas.paste(shape, (off, off), shape)
+    return canvas
 
 
 def main():
@@ -36,9 +58,12 @@ def main():
     # other, so a small size never inherits a previous resize's softness.
     base = im.resize((1024, 1024), Image.LANCZOS)
 
+    # Windows draws icons edge to edge, so it gets the artwork untouched.
     ico = os.path.join(ICON_DIR, "autoPitch.ico")
     base.save(ico, format="ICO", sizes=[(s, s) for s in WIN_SIZES])
     print(f"  {os.path.basename(ico)}  ({os.path.getsize(ico) / 1024:.0f} KB)")
+
+    mac = _rounded(base)
 
     if sys.platform != "darwin":
         print("  autoPitch.icns 는 macOS 에서만 만들 수 있습니다 — 건너뜁니다.")
@@ -54,7 +79,7 @@ def main():
             for scale in (1, 2):
                 suffix = "@2x" if scale == 2 else ""
                 px = pt * scale
-                base.resize((px, px), Image.LANCZOS).save(
+                mac.resize((px, px), Image.LANCZOS).save(
                     os.path.join(iconset, f"icon_{pt}x{pt}{suffix}.png"))
         icns = os.path.join(ICON_DIR, "autoPitch.icns")
         subprocess.run(["iconutil", "-c", "icns", iconset, "-o", icns], check=True)

@@ -392,12 +392,19 @@ def _install_ffmpeg_job():
         job.update(status="error", error="이 운영체제는 자동 설치를 지원하지 않습니다.")
         return
     cmd, tool, hint = entry
-    if not shutil.which(tool):
+    from src.ffmpeg import search_path, which
+    exe = which(tool)
+    if not exe:
         job.update(status="error", error=hint)
         return
     job.update(status="running", cmd=" ".join(cmd), log="")
     try:
-        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        # Run the resolved path, and hand the child a PATH that reaches the same
+        # places: a Finder launch gives us `/usr/bin:/bin` only, and `brew` with
+        # that PATH cannot find its own tools.
+        env = {**os.environ, "PATH": search_path()}
+        p = subprocess.Popen([exe, *cmd[1:]], env=env,
+                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                              text=True, errors="replace")
         for line in p.stdout:
             job["log"] = (job.get("log", "") + line)[-4000:]

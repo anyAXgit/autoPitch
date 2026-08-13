@@ -30,6 +30,37 @@ class FFmpegMissing(RuntimeError):
 
 _CACHE = {}
 
+# An app launched from Finder does not inherit the shell's PATH -- it gets a
+# bare `/usr/bin:/bin:/usr/sbin:/sbin`. Homebrew installs to /opt/homebrew/bin
+# (Apple silicon) or /usr/local/bin (Intel), neither of which is in that list.
+# So `which("brew")` and `which("ffmpeg")` both come back empty on a machine
+# where the user can run either one from a terminal -- and the app tells them to
+# install what they already installed. Look in the standard places too.
+_EXTRA_BIN_DIRS = [
+    "/opt/homebrew/bin",                    # Homebrew, Apple silicon
+    "/usr/local/bin",                       # Homebrew on Intel; manual installs
+    "/opt/local/bin",                       # MacPorts
+    "/snap/bin",                            # Linux, snap
+    r"C:\ProgramData\chocolatey\bin",       # Windows, Chocolatey
+]
+
+
+def search_path():
+    """PATH plus the install locations a GUI launch cannot see.
+
+    Also handed to subprocesses: `brew install` needs to find its own tools, and
+    inheriting our stripped-down PATH is what breaks it.
+    """
+    dirs = os.environ.get("PATH", "").split(os.pathsep)
+    dirs += [d for d in _EXTRA_BIN_DIRS
+             if os.path.isdir(d) and d not in dirs]
+    return os.pathsep.join(d for d in dirs if d)
+
+
+def which(name):
+    """`shutil.which`, widened to the standard install locations."""
+    return shutil.which(name, path=search_path())
+
 
 def _bundled_dir():
     """Where a PyInstaller build keeps its binaries, or None in a checkout."""
@@ -52,7 +83,7 @@ def _resolve(name):
         cand = os.path.join(bundled, exe)
         if os.path.exists(cand):
             return cand
-    found = shutil.which(name)
+    found = which(name)
     if found:
         return found
     raise FFmpegMissing(

@@ -16,6 +16,9 @@ import sys
 
 ROOT = os.path.abspath(os.path.join(SPECPATH, ".."))
 VENDOR = os.path.join(SPECPATH, "vendor", "bin")
+# Regenerate both from packaging/icon/icon.png with packaging/make_icons.py.
+ICON = os.path.join(SPECPATH, "icon",
+                    "autoPitch.icns" if sys.platform == "darwin" else "autoPitch.ico")
 
 datas = [
     (os.path.join(ROOT, "gui", "app.html"), "gui"),
@@ -54,6 +57,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=ICON,
 )
 coll = COLLECT(exe, a.binaries, a.datas, strip=False, upx=False, name="autoPitch")
 
@@ -61,6 +65,7 @@ if sys.platform == "darwin":
     app = BUNDLE(
         coll,
         name="autoPitch.app",
+        icon=ICON,
         bundle_identifier="dev.autopitch.studio",
         info_plist={
             "CFBundleName": "autoPitch",

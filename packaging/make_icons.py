@@ -82,7 +82,14 @@ def main():
                 mac.resize((px, px), Image.LANCZOS).save(
                     os.path.join(iconset, f"icon_{pt}x{pt}{suffix}.png"))
         icns = os.path.join(ICON_DIR, "autoPitch.icns")
-        subprocess.run(["iconutil", "-c", "icns", iconset, "-o", icns], check=True)
+        try:
+            subprocess.run(["iconutil", "-c", "icns", iconset, "-o", icns],
+                           check=True, stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL)
+        except subprocess.CalledProcessError:
+            # Some recent macOS releases reject even iconsets extracted from a
+            # valid .icns. Pillow's native ICNS writer is a reliable fallback.
+            mac.save(icns, format="ICNS")
         print(f"  {os.path.basename(icns)}  ({os.path.getsize(icns) / 1024:.0f} KB)")
     finally:
         shutil.rmtree(iconset, ignore_errors=True)

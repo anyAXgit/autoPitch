@@ -5,6 +5,8 @@
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-08-13
+
 ### 수정
 - 설치판이 ffmpeg 를 못 찾던 문제. Finder 로 띄운 앱은 셸의 PATH 를 물려받지
   않고 `/usr/bin:/bin` 만 받는데, Homebrew 는 `/opt/homebrew/bin` 에 깔린다.

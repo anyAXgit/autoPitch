@@ -26,6 +26,13 @@ def _install(directory, name):
     return str(p)
 
 
+def same(a, b):
+    """Windows reports the extension as PATHEXT spells it (`.EXE`) whatever the
+    file is called, and its paths are case-insensitive -- so compare them the
+    way the OS does."""
+    return a is not None and os.path.normcase(a) == os.path.normcase(b)
+
+
 @pytest.fixture
 def finder_launch(monkeypatch, tmp_path):
     """A stripped PATH, plus a stand-in for /opt/homebrew/bin."""
@@ -38,7 +45,7 @@ def finder_launch(monkeypatch, tmp_path):
 
 def test_finds_a_binary_the_shell_path_does_not_reach(finder_launch):
     expected = _install(finder_launch, "brew")
-    assert F.which("brew") == expected
+    assert same(F.which("brew"), expected)
 
 
 def test_still_missing_is_still_missing(finder_launch):
@@ -53,7 +60,7 @@ def test_path_wins_over_the_fallback(finder_launch, monkeypatch, tmp_path):
     expected = _install(on_path, "ffmpeg")
     _install(finder_launch, "ffmpeg")
     monkeypatch.setenv("PATH", str(on_path))
-    assert F.which("ffmpeg") == expected
+    assert same(F.which("ffmpeg"), expected)
 
 
 def test_search_path_keeps_the_original_entries(finder_launch):

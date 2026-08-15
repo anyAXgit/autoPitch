@@ -146,16 +146,14 @@ def test_mean_db_cache_preserves_angle_pick(tmp_path):
     peaks = detect_peaks(res["audio"]["camA"], cfg)
     plan = build_plan(res, offsets, peaks, "camA", cfg)
     clip = plan["clips"][0]
-    assert len(clip["segments"]) == 2
-    # camC is loudest (gain 22) so it takes the buildup; the reaction goes to the
-    # loudest of the rest (camA, gain 10). A cache bug that mixed up per-cam
-    # (times, db) arrays would put some other cam in one of these slots.
     # A cache bug that mixed up per-cam (times, db) arrays would put the wrong
-    # camera in one of these slots; deriving the order from the audio catches it.
+    # camera on screen; deriving the expected one from the audio catches it.
+    # Four cameras hearing one burst gives no second angle to switch to -- the
+    # camera that heard it is already the one showing it -- so this checks the
+    # camera, not the number of segments.
+    start = min(g["src_in"] - offsets.get(g["cam"], 0.0) for g in clip["segments"])
     end = max(g["src_out"] - offsets.get(g["cam"], 0.0) for g in clip["segments"])
-    order = _by_loudness(res, offsets, clip["T"], end, cfg)
-    assert clip["segments"][0]["cam"] == order[0]
-    assert clip["segments"][1]["cam"] == order[1]
+    assert clip["segments"][0]["cam"] == _by_loudness(res, offsets, start, end, cfg)[0]
 
 
 def _cfg_yaml(tmp_path, reaction=None, **top):
@@ -181,11 +179,28 @@ def _multicam_res(tmp_path):
     return res, offsets
 
 
+def _reaction_res(tmp_path):
+    """A goal one camera hears and a celebration the other hears.
+
+    Switching angle is not automatic any more -- the second angle has to be the
+    one hearing the celebration, or the clip stays on the camera it started on.
+    So a fixture that exercises the cut needs the two moments genuinely split:
+    camA carries the goal, camB takes over as the crowd keeps going.
+    """
+    raw = tmp_path / "raw"
+    make_dummy_set(str(raw), [
+        {"name": "camA", "color": "red", "offset": 0.0, "bursts": [(28, 35, 20)]},
+        {"name": "camB", "color": "green", "offset": 0.0, "bursts": [(32, 36, 20)]},
+    ], duration=55.0)
+    res = preprocess_all(str(raw), str(tmp_path / "tv"), str(tmp_path / "ta"), fps=30)
+    return res, compute_offsets(res["audio"], "camA")
+
+
 def test_angle_cut_holds_post_goal(tmp_path):
     # The Cam-A buildup must hold PAST the goal peak T before switching to
     # the reaction cam (not cut exactly at T), and the reaction segment must
     # start where the buildup ends and survive with >= min_reaction_sec.
-    res, offsets = _multicam_res(tmp_path)
+    res, offsets = _reaction_res(tmp_path)
     cfg = _cfg_yaml(tmp_path, reaction={"post_goal_sec": 2.5, "min_reaction_sec": 2})
     peaks = detect_peaks(res["audio"]["camA"], cfg)
     plan = build_plan(res, offsets, peaks, "camA", cfg)
@@ -198,7 +213,9 @@ def test_angle_cut_holds_post_goal(tmp_path):
     # comparing against T, which lives on the reference clock.
     cut_real = a["src_out"] - offsets.get(a["cam"], 0.0)
     assert cut_real <= T + cfg.post_goal_sec + 0.05           # never more than post_goal
-    assert abs(b["src_in"] - a["src_out"]) < 0.6             # reaction starts at the cut (offset~0)
+    # both sides of the cut, back on the reference clock: no gap, no overlap
+    assert abs((b["src_in"] - offsets.get(b["cam"], 0.0))
+               - (a["src_out"] - offsets.get(a["cam"], 0.0))) < 0.1
     assert (b["src_out"] - b["src_in"]) >= cfg.min_reaction_sec - 0.6
 
 
@@ -261,10 +278,13 @@ def test_build_plan_anchors_on_onset(tmp_path):
     assert abs(real_in - max(0.0, clip["T"] - cfg.build_up_sec)) < 0.05
 
 
-def test_build_plan_goal_side_cam_is_primary(tmp_path, monkeypatch):
-    # When net-ROI identifies the goal-side cam (here camB), the GOAL segment
-    # (seg0) must use camB, not always camA -- so the goal is shown from the
-    # camera nearest to where it was scored; reaction = the other cam (camA).
+def test_build_plan_records_which_net_was_hit(tmp_path, monkeypatch):
+    """`_refine_anchor`'s verdict reaches the clip, and moves the anchor with it.
+
+    It used to pick the angle too. It no longer does -- see
+    `test_angle_comes_from_sound_not_the_net_roi` -- but which net the ball went
+    into is still worth knowing, and the UI shows it.
+    """
     import src.segment_planner as sp
     res, offsets = _multicam_res(tmp_path)                      # camA + camB
     (tmp_path / "net_rois.json").write_text('{"cam":[0,0,1,1]}')  # non-empty -> rois truthy
@@ -272,11 +292,9 @@ def test_build_plan_goal_side_cam_is_primary(tmp_path, monkeypatch):
                                       "rois_path": str(tmp_path / "net_rois.json")})
     monkeypatch.setattr(sp, "_refine_anchor", lambda *a, **k: (30.0, "camB"))
     peaks = detect_peaks(res["audio"]["camA"], cfg)
-    plan = sp.build_plan(res, offsets, peaks, "camA", cfg)
-    clip = plan["clips"][0]
+    clip = sp.build_plan(res, offsets, peaks, "camA", cfg)["clips"][0]
     assert clip["goal_cam"] == "camB"
-    assert clip["segments"][0]["cam"] == "camB"                 # goal from goal-side cam
-    assert clip["segments"][1]["cam"] == "camA"                 # reaction from the other cam
+    assert clip["T"] == 30.0
 
 
 def test_build_plan_prefers_earlier_roi_hit_over_stronger_later_hit(tmp_path, monkeypatch):

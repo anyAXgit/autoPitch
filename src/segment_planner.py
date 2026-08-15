@@ -282,18 +282,6 @@ def _loudest_cam(cams, offsets, lo, hi, k_cache, exclude=None):
     return best
 
 
-def _loudest_other(pre, offsets, exclude, T, end, cfg, k_cache):
-    """Loudest cam over the celebration window [T, end], excluding `exclude`.
-    Returns None if there's no other cam."""
-    return _loudest_cam(pre["cams"], offsets, T, end, k_cache, exclude=exclude)
-
-
-def pick_reaction_angle(pre, offsets, camA, T, end, cfg, k_cache):
-    if not pre["is_multicam"]:
-        return camA
-    return _loudest_other(pre, offsets, camA, T, end, cfg, k_cache) or camA
-
-
 def _label_for(goal_labels, peak):
     """Vision verdict for a peak, tolerating float drift. DATA ONLY -- this is
     never the render flag; burning a badge stays the editor's manual choice."""
@@ -417,20 +405,24 @@ def build_plan(pre, offsets, peaks, camA, cfg, progress=None, goal_labels=None):
                 # the angle back to the ROI through the back door is exactly
                 # what deciding by sound was meant to stop.
                 primary = _loudest_cam(pre["cams"], offsets, start, end, k_cache) or camA
-            react = _loudest_other(pre, offsets, primary, T, end, cfg, k_cache)
-            if react is not None:
-                # Hold the primary cam a beat past the goal before switching to the
-                # reaction angle, so the ball settling into the net and the first
-                # beat of celebration play on the goal-side cam. Grow `end` if needed
-                # so the reaction segment keeps at least min_reaction_sec.
-                end = min(max(end, T + cfg.post_goal_sec + cfg.min_reaction_sec), hi)
-                cut = max(T, min(T + cfg.post_goal_sec, end - cfg.min_reaction_sec))
-                if end - cut < cfg.min_angle_switch_sec:
-                    segments = [seg(primary, start, end)]
-                else:
-                    segments = [seg(primary, start, cut), seg(react, cut, end)]
-            else:
-                segments = [seg(primary, start, end)]
+            # Hold the primary cam a beat past the goal before any switch, so the
+            # ball settling into the net and the first beat of celebration play
+            # on the goal-side cam. Grow `end` if needed so a reaction segment
+            # would keep at least min_reaction_sec.
+            end = min(max(end, T + cfg.post_goal_sec + cfg.min_reaction_sec), hi)
+            cut = max(T, min(T + cfg.post_goal_sec, end - cfg.min_reaction_sec))
+            # Then ask the same question the primary angle was decided by, over
+            # the stretch a second angle would occupy: who heard this? Switching
+            # used to mean "cut to the other camera", which with two cameras is
+            # not a choice at all -- there is only one other. Measured across two
+            # games, three of the four switches cut to the QUIETER camera, one of
+            # them away from a +4.70 celebration to a +0.72 empty half. A cut has
+            # to earn itself; if the camera already on screen is still the one
+            # hearing it, stay.
+            react = (_loudest_cam(pre["cams"], offsets, cut, end, k_cache)
+                     if end - cut >= cfg.min_angle_switch_sec else None)
+            segments = ([seg(primary, start, cut), seg(react, cut, end)]
+                        if react and react != primary else [seg(primary, start, end)])
         else:
             segments = [seg(camA, start, end)]
         # T = goal-onset anchor (clip start / label); peak = loudness peak; goal_cam = net-ROI goal side

@@ -130,8 +130,10 @@ def test_render_hard_cut_when_crossfade_zero(tmp_path):
     # output duration equals the full sum of segment lengths (no overlap eaten).
     raw = tmp_path / "raw"
     make_dummy_set(str(raw), [
-        {"name": "camA", "color": "red", "offset": 0.0, "bursts": [(30, 32, 10)]},
-        {"name": "camB", "color": "green", "offset": 0.0, "bursts": [(30, 34, 18)]},
+        # camA hears the goal, camB the celebration that follows -- the angle
+        # only switches when the second camera is the one hearing it.
+        {"name": "camA", "color": "red", "offset": 0.0, "bursts": [(28, 35, 20)]},
+        {"name": "camB", "color": "green", "offset": 0.0, "bursts": [(32, 36, 20)]},
     ], duration=55.0)
     res = preprocess_all(str(raw), str(tmp_path / "tv"), str(tmp_path / "ta"),
                          fps=30, width=320, height=180)
@@ -313,7 +315,7 @@ def test_reaction_marker_lands_within_tolerance(tmp_path):
         {"name": "camA", "color": "red", "offset": 0.0,
          "bursts": [(30, 44, 10)]},
         {"name": "camB", "color": "green", "offset": 0.0,
-         # broad reaction burst so pick_reaction_angle picks camB, plus a
+         # broad reaction burst so the reaction angle goes to camB, plus a
          # short, sharp, much louder marker burst at Tb that dominates the
          # reaction window and is trivially locatable via rms_db.
          "bursts": [(30, 44, 16), (Tb, Tb + 0.6, 30)]},

@@ -1519,10 +1519,15 @@ function mergeEdit(saved, fresh){
   const out=[],stat={kept:0,refreshed:0,orphan:0,added:0};
   for(const s of saved){
     const inc=s.include!==false;
+    // Claim first, always. A hand-edited clip keeps its own data, but it still
+    // has to consume the detector's proposal for that cheer -- otherwise the
+    // proposal is left unclaimed, gets appended as a "new candidate", and every
+    // clip the person had shaped came back doubled. Two games here had grown to
+    // 72 and 74 items from plans of 69 and 42.
+    const m=claim(s.data&&s.data.peak);
     if(s.data&&s.data.hand){                   // theirs -- leave it exactly as it is
       out.push({id:nextId++,include:inc,data:s.data});stat.kept++;continue;
     }
-    const m=claim(s.data&&s.data.peak);
     if(m){out.push({id:nextId++,include:inc,data:m.data});stat.refreshed++;}
     // No fresh clip for it: the detector stopped proposing this moment. Keep it
     // -- a re-run that silently deleted a clip the person had kept would be

@@ -1014,6 +1014,17 @@ def _render_job(job_id, plan, out_rel, bgm, bgm_volume, filename):
                 f"원본 영상을 찾을 수 없습니다: {names}{more}. "
                 f"파일을 옮겼다면 '처음부터 다시'로 장면을 다시 찾아 주세요.")
 
+        # Encoding settings belong to the render, not to the detection cache.
+        # They were written into the plan when it was built, so a plan cached
+        # under the old defaults kept rendering with them -- and changing a
+        # quality setting would have meant re-running goal detection to take
+        # effect. Take them from the config as it is now.
+        from src.config import load_config
+        _cfg = load_config(os.path.join(STATE["root"], "config.yaml"))
+        plan["hw_encode"] = _cfg.hw_encode
+        plan["video_crf"] = _cfg.video_crf
+        plan["video_preset"] = _cfg.video_preset
+
         job["started"] = time.time()
         job.update(percent=2, stage="렌더 준비 중")
         clips = render_plan(plan, work_dir, bgm_path, bgm_volume, on_clip=on_clip)

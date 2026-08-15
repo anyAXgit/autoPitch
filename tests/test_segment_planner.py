@@ -74,9 +74,9 @@ def _mean_k(audio_path, offset, a, b, cfg):
     return float(np.mean(k[m])) if m.any() else float("-inf")
 
 
-def _by_loudness(res, offsets, T, end, cfg):
-    """Cameras ordered loudest-first over the celebration window."""
-    return sorted(res["audio"], key=lambda c: -_mean_k(res["audio"][c], offsets.get(c, 0.0), T, end, cfg))
+def _by_loudness(res, offsets, lo, hi, cfg):
+    """Cameras ordered loudest-first over [lo, hi]."""
+    return sorted(res["audio"], key=lambda c: -_mean_k(res["audio"][c], offsets.get(c, 0.0), lo, hi, cfg))
 
 
 def test_multicam_reaction_uses_louder_subcam(tmp_path):
@@ -98,11 +98,16 @@ def test_multicam_reaction_uses_louder_subcam(tmp_path):
     # is comes from the audio, not from the generator's gain numbers -- each
     # recording has its own spread, so a bigger gain is not automatically a
     # bigger k.
+    start = min(g["src_in"] - offsets.get(g["cam"], 0.0) for g in clip["segments"])
     end = max(g["src_out"] - offsets.get(g["cam"], 0.0) for g in clip["segments"])
-    order = _by_loudness(res, offsets, clip["T"], end, cfg)
     assert len(clip["segments"]) == 2
-    assert clip["segments"][0]["cam"] == order[0]          # loudest -> buildup
-    assert clip["segments"][1]["cam"] == order[1]          # next -> reaction
+    # The two angles answer different questions and so listen to different
+    # windows: the buildup cam is the one that heard the clip being shown, the
+    # reaction cam the one that heard the celebration.
+    assert clip["segments"][0]["cam"] == _by_loudness(res, offsets, start, end, cfg)[0]
+    rest = [c for c in _by_loudness(res, offsets, clip["T"], end, cfg)
+            if c != clip["segments"][0]["cam"]]
+    assert clip["segments"][1]["cam"] == rest[0]
 
 
 def test_multicam_end_uses_loudest_camera_not_only_main_cam(tmp_path):
@@ -699,3 +704,25 @@ def test_angle_comes_from_sound_not_the_net_roi(tmp_path, monkeypatch):
     cfg = _cfg_yaml(tmp_path, locate={**locate, "angle_from_roi": True})
     clip = sp.build_plan(res, offsets, peaks, "camA", cfg)["clips"][0]
     assert clip["segments"][0]["cam"] == "camA"
+
+
+def test_the_angle_vote_hears_the_whole_clip_not_just_after_the_anchor():
+    """A camera whose cheer lands in the buildup must still win.
+
+    The anchor moves: the net-ROI drags it to the goal frame, which can be
+    seconds ahead of the crowd. A vote window starting at the anchor therefore
+    moves with the ROI, and on the game measured here it walked far enough
+    forward at 10:28 that the cheer which proposed the clip fell outside it --
+    handing the angle back to the ROI through the back door, and to whichever
+    camera had the higher noise floor.
+    """
+    import numpy as np
+    from src.segment_planner import _loudest_cam
+    t = np.arange(0.0, 40.0, 0.5)
+    near = np.where((t >= 22) & (t <= 25), 3.0, 0.0)   # one burst, in the buildup
+    far = np.full_like(t, 0.4)                          # a steadily noisy floor
+    k = {"near": (t, near), "far": (t, far)}
+    cams, offs = ["near", "far"], {}
+
+    assert _loudest_cam(cams, offs, 20.0, 35.0, k) == "near"   # whole clip
+    assert _loudest_cam(cams, offs, 28.0, 35.0, k) == "far"    # anchor onward: lost

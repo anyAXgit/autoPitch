@@ -268,15 +268,15 @@ def k_cache_from(rms_cache):
     return out
 
 
-def _loudest_cam(cams, offsets, T, end, k_cache, exclude=None):
-    """Camera that heard [T, end] most, in k. None when there is no candidate."""
+def _loudest_cam(cams, offsets, lo, hi, k_cache, exclude=None):
+    """Camera that heard [lo, hi] most, in k. None when there is no candidate."""
     best, best_k = None, -np.inf
     for cam in cams:
         if cam == exclude or cam not in k_cache:
             continue
         cam_times, cam_k = k_cache[cam]
         m = _mean_db(cam_times, cam_k,
-                     max(0.0, T + offsets.get(cam, 0.0)), end + offsets.get(cam, 0.0))
+                     max(0.0, lo + offsets.get(cam, 0.0)), hi + offsets.get(cam, 0.0))
         if m > best_k:
             best, best_k = cam, m
     return best
@@ -408,7 +408,15 @@ def build_plan(pre, offsets, peaks, camA, cfg, progress=None, goal_labels=None):
             elif cfg.main_cam:
                 primary = camA          # an explicit instruction outranks a guess
             else:
-                primary = _loudest_cam(pre["cams"], offsets, T, end, k_cache) or camA
+                # Judge the footage that will be shown -- the whole clip, not
+                # [T, end]. `T` is the ROI-refined anchor, so a window starting
+                # there moves when the ROI moves: at 10:28 of the game measured
+                # here it had walked far enough forward that the cheer which
+                # proposed the clip fell outside the window entirely, and the
+                # vote went to the camera with the higher noise floor. Handing
+                # the angle back to the ROI through the back door is exactly
+                # what deciding by sound was meant to stop.
+                primary = _loudest_cam(pre["cams"], offsets, start, end, k_cache) or camA
             react = _loudest_other(pre, offsets, primary, T, end, cfg, k_cache)
             if react is not None:
                 # Hold the primary cam a beat past the goal before switching to the

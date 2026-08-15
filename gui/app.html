@@ -1417,18 +1417,68 @@ function renderTimeline(){
   playN=Math.min(playN,total);updatePh();
 }
 
-/* Bring back the saved edit, if there is one. Clips the detector no longer
-   proposes are kept: the person put them there on purpose, and a re-run that
-   silently deleted them would be worse than not restoring at all. */
+/* Clips the person shaped themselves -- trimmed, re-angled, split, duplicated.
+   Everything else on screen is the detector's proposal, and a proposal is
+   allowed to change when the detector improves. */
+const hand=c=>{c.data.hand=true;return c;};
+
+/* Merge a saved edit onto a fresh detection.
+
+   The saved file used to be restored wholesale, which quietly made re-analysis
+   pointless: it carried each clip's `segments`, so the camera and timing the
+   pipeline had chosen last time came back over the new ones and were saved
+   again on the next keystroke. An angle fix could be released, run, and never
+   be seen.
+
+   So keep the decisions and take the findings fresh. Clips are matched by
+   `peak` -- the cheer that proposed them -- because that is the one thing that
+   does not move when the anchor logic changes. */
+function mergeEdit(saved, fresh){
+  const pool=fresh.map(c=>({c,used:false}));
+  const claim=peak=>{
+    if(peak==null)return null;
+    let best=null,gap=0.5;                     // same cheer, allowing for drift
+    for(const p of pool){
+      if(p.used||p.c.data.peak==null)continue;
+      const d=Math.abs(p.c.data.peak-peak);
+      if(d<=gap){best=p;gap=d;}
+    }
+    if(best)best.used=true;
+    return best?best.c:null;
+  };
+  const out=[],stat={kept:0,refreshed:0,orphan:0,added:0};
+  for(const s of saved){
+    const inc=s.include!==false;
+    if(s.data&&s.data.hand){                   // theirs -- leave it exactly as it is
+      out.push({id:nextId++,include:inc,data:s.data});stat.kept++;continue;
+    }
+    const m=claim(s.data&&s.data.peak);
+    if(m){out.push({id:nextId++,include:inc,data:m.data});stat.refreshed++;}
+    // No fresh clip for it: the detector stopped proposing this moment. Keep it
+    // -- a re-run that silently deleted a clip the person had kept would be
+    // worse than not restoring at all -- but say so in the count.
+    else{out.push({id:nextId++,include:inc,data:s.data});stat.orphan++;}
+  }
+  for(const p of pool)if(!p.used){out.push(p.c);stat.added++;}   // new candidates
+  return {clips:out,stat};
+}
+
 async function restoreEdit(){
   editLoaded=false;
   try{
     const r=await api('/api/edit?game='+encodeURIComponent(window._edGameKey||''));
     if(r&&r.clips&&r.clips.length){
-      clips=r.clips.map(c=>({id:nextId++,include:c.include!==false,data:c.data}));
+      const {clips:merged,stat}=mergeEdit(r.clips,clips);
+      clips=merged;
       selId=clips.length?clips[0].id:null;
       const el=$('#edSaved');
-      if(el)el.textContent='저장된 편집 불러옴 ('+clips.filter(c=>c.include).length+'개 포함)';
+      if(el){
+        const extra=[stat.refreshed?stat.refreshed+'개 새 탐지 반영':'',
+                     stat.kept?stat.kept+'개 직접 편집 유지':'',
+                     stat.added?stat.added+'개 새 후보':''].filter(Boolean).join(' · ');
+        el.textContent='저장된 편집 불러옴 ('+clips.filter(c=>c.include).length+'개 포함'
+                       +(extra?' — '+extra:'')+')';
+      }
       renderTimeline();renderLib();renderInsp();updUndo();
     }
   }catch(e){/* no saved edit, or unreadable -- open the fresh detection */}
@@ -1464,7 +1514,7 @@ function bindClip(el,c){
   const drag=(handle,apply)=>{
     handle.addEventListener('mousedown',ev=>{
       ev.preventDefault();ev.stopPropagation();selId=c.id;
-      pushHist();trimming=true;
+      pushHist();trimming=true;hand(c);
       const hold=el.querySelector('.nwave');
       const mode=handle.classList.contains('l')?'left':(handle.classList.contains('r')?'right':'cut');
       if(hold&&hold.width&&hold.height)c._waveHold={url:hold.toDataURL(),w:hold.width,h:hold.height,x:0,mode};
@@ -1635,23 +1685,25 @@ function renderInsp(){
     const label=o.length===1?camName(o[0])+'만':camName(o[0])+'→'+camName(o[1]);
     return `<button class="tbtn${o.join('→')===cur?' on':''}" data-ang="${o.join(',')}">${label}</button>`;
   }).join('');
-  ang.querySelectorAll('[data-ang]').forEach(b=>b.onclick=()=>apply(()=>setAngles(c,b.dataset.ang.split(','))));
-  box.querySelector('[data-n="in"]').onchange=e=>apply(()=>{segs[0].src_in=clamp(parseFloat(e.target.value)||0,0,segs[0].src_out-0.5);});
+  ang.querySelectorAll('[data-ang]').forEach(b=>b.onclick=()=>apply(()=>{hand(c);setAngles(c,b.dataset.ang.split(','));}));
+  box.querySelector('[data-n="in"]').onchange=e=>apply(()=>{hand(c);segs[0].src_in=clamp(parseFloat(e.target.value)||0,0,segs[0].src_out-0.5);});
   const ci=box.querySelector('[data-n="cut"]');
-  if(ci)ci.onchange=e=>apply(()=>{const v=parseFloat(e.target.value)||0,d=v-segs[0].src_out;segs[0].src_out=v;segs[1].src_in=Math.max(0,segs[1].src_in+d);});
-  box.querySelector('[data-n="out"]').onchange=e=>apply(()=>{const g=segs[segs.length-1];g.src_out=Math.max(g.src_in+0.5,parseFloat(e.target.value)||0);});
+  if(ci)ci.onchange=e=>apply(()=>{hand(c);const v=parseFloat(e.target.value)||0,d=v-segs[0].src_out;segs[0].src_out=v;segs[1].src_in=Math.max(0,segs[1].src_in+d);});
+  box.querySelector('[data-n="out"]').onchange=e=>apply(()=>{hand(c);const g=segs[segs.length-1];g.src_out=Math.max(g.src_in+0.5,parseFloat(e.target.value)||0);});
   box.querySelectorAll('[data-set]').forEach(b=>b.onclick=()=>setAtPlayhead(b.dataset.set));
   box.querySelector('[data-act="play"]').onclick=()=>{if(!c.include)return;seekSeq(offsetOf(seqClips().indexOf(c)));startPlay();};
   box.querySelector('[data-act="tog"]').onclick=()=>apply(()=>{c.include=!c.include;});
   box.querySelector('[data-act="dup"]').onclick=()=>apply(()=>{
     const i=clips.indexOf(c);
-    clips.splice(i+1,0,{id:nextId++,include:true,data:JSON.parse(JSON.stringify(c.data))});
+    const copy={id:nextId++,include:true,data:JSON.parse(JSON.stringify(c.data))};
+    hand(copy);                       // a second copy of one moment is a decision
+    clips.splice(i+1,0,copy);
   });
 }
 function setAtPlayhead(which){
   const m=locate(playN);if(!m)return;
   const c=m.clip;selId=c.id;const segs=c.data.segments;
-  pushHist();
+  pushHist();hand(c);
   if(which==='in'&&m.seg===0)segs[0].src_in=clamp(m.src,0,segs[0].src_out-0.5);
   else if(which==='out'){const g=segs[segs.length-1];if(m.seg===segs.length-1)g.src_out=Math.max(g.src_in+0.5,m.src);}
   else if(which==='cut'&&segs.length>1){
@@ -1677,7 +1729,7 @@ function bladeAtPlayhead(){
     ...JSON.parse(JSON.stringify(c.data)),segments:pieceSegs,
     T:pieceSegs[0].src_in-off(pieceSegs[0].cam),  // label each piece by its own start
     roi_only:false,goal_label:false}});   // a hand-cut piece is no longer an auto goal marker
-  const a=mk(aSegs),b=mk(bSegs);
+  const a=hand(mk(aSegs)),b=hand(mk(bSegs));   // both halves are hand-cut now
   // the goal overlay (if any) stays with whichever piece still contains T
   if(c.data.goal_label){const gt=c.data.T+off(segs[0].cam);(gt<=cut?a:b).data.goal_label=true;
     (gt<=cut?a:b).data.T=c.data.T;}

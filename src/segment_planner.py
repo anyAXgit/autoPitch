@@ -82,7 +82,7 @@ def _refine_anchor(pre, offsets, onset, cfg, rois):
     # keeper movement or players brushing the net long before the goal. Keep
     # candidates that are plausibly tied to this cheer; if all candidates are too
     # early, leave the audio onset alone instead of over-refining to noise.
-    max_lead = max(cfg.build_up_sec + 6.0, 11.0)
+    max_lead = cfg.locate.max_lead_sec
     candidates = [c for c in candidates if c[0] >= onset - max_lead and c[0] <= onset + cfg.locate.post_sec]
     if not candidates:
         return None

@@ -36,6 +36,12 @@ locate:                   # net-ROI goal localization (fixed cameras); off by de
   post_sec: 0.5
   fps: 10
   min_prominence: 6        # net motion spike must exceed window median by this many MADs
+  max_lead_sec: 9          # 골망 히트가 함성보다 이만큼 앞서면 이 골로 인정하지 않는다.
+                           # 관중은 공을 한 박자 뒤에 따라오므로, 훨씬 앞선 히트는
+                           # 직전 플레이의 네트 움직임이다. 그걸 집으면 클립이 골을
+                           # 벗어나고 앵글도 그쪽으로 끌려간다. 실측(2026-08-15):
+                           # 정상 보정은 앵커를 중앙값 3.8초 옮기는데, 눈으로 확인한
+                           # 오답 3건은 9.4 / 10.1 / 11.6초였다.
   scan_enabled: false      # ROI-only 조용한-골 스캔 — 이 구장 지오메트리에선 비활성 권장.
                            # 실측 결론(2026-07-16): 측면 카메라 + 골대 뒤 상주 여분공 때문에
                            # 네트 영역의 시각 신호로는 골/정크 분리 불가 (모션량·모양특징·

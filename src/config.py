@@ -40,6 +40,12 @@ class LocateConfig:
     weak_audio_k: float = 2.0       # add ROI-verified candidates from sub-threshold audio peaks
     weak_audio_min_confidence: float = 40.0  # ROI confidence floor for weak-audio candidates
     weak_audio_max_lead_sec: float = 5.0  # ROI hit may precede weak audio by only a few seconds
+    # How far before the cheer a net hit may sit and still be called this goal.
+    # The crowd follows the ball by a beat, so a hit much earlier belongs to the
+    # previous phase of play -- taking it drags the clip off the goal and the
+    # angle with it. Measured on one game: good refinements shift the anchor a
+    # median 3.8s, while three angles confirmed wrong by eye sat at 9.4/10.1/11.6s.
+    max_lead_sec: float = 9.0
     frame_px: int = 64              # ROI downscaled to frame_px^2 for the diff
 
 
@@ -130,6 +136,7 @@ def load_config(path: str = "config.yaml") -> Config:
             weak_audio_k=locate.get("weak_audio_k", ldef.weak_audio_k),
             weak_audio_min_confidence=locate.get("weak_audio_min_confidence", ldef.weak_audio_min_confidence),
             weak_audio_max_lead_sec=locate.get("weak_audio_max_lead_sec", ldef.weak_audio_max_lead_sec),
+            max_lead_sec=locate.get("max_lead_sec", ldef.max_lead_sec),
             frame_px=locate.get("frame_px", ldef.frame_px),
         ),
     )

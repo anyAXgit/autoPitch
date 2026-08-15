@@ -630,3 +630,36 @@ def test_clips_do_not_overlap_when_anchors_land_close(tmp_path):
     for a, b in zip(clips, clips[1:]):
         assert span(a)[1] <= span(b)[0] + 0.05, \
             f"clips overlap in real time: {span(a)} then {span(b)}"
+
+
+def test_distant_net_hit_is_not_called_this_goal(tmp_path, monkeypatch):
+    """A net hit far before the cheer belongs to the previous phase of play.
+    Taking it drags the clip off the goal and the angle with it -- three angles
+    confirmed wrong by eye on one game all came from hits 9.4s or more before
+    their cheer, against a 3.8s median for the ones that were right.
+    """
+    from src import segment_planner as SP
+    res, offsets = _multicam_res(tmp_path)
+    cfg = _cfg_yaml(tmp_path, locate={"enabled": True, "rois_path": "x.json",
+                                      "max_lead_sec": 9.0})
+    peaks = detect_peaks(res["audio"]["camA"], cfg)
+    onset_seen = {}
+
+    def fake_locate(source, center_time, c, roi):
+        # One camera reports a hit far earlier than the cheer; nothing else does.
+        onset_seen.setdefault("t", center_time)
+        if source.endswith(res["source"]["camB"].split("/")[-1]):
+            return {"goal_time": center_time - 10.0, "confidence": 99.0}
+        return None
+
+    monkeypatch.setattr(SP.goal_locator, "load_rois", lambda p: {"camA": [0, 0, 1, 1],
+                                                                 "camB": [0, 0, 1, 1]})
+    monkeypatch.setattr(SP.goal_locator, "roi_for_cam", lambda cam, r, s=None: [0, 0, 1, 1])
+    monkeypatch.setattr(SP.goal_locator, "locate_goal", fake_locate)
+    clip = build_plan(res, offsets, peaks, "camA", cfg)["clips"][0]
+    assert clip["goal_cam"] is None, "10s 앞선 히트는 이 골로 인정하면 안 된다"
+
+    loose = _cfg_yaml(tmp_path, locate={"enabled": True, "rois_path": "x.json",
+                                        "max_lead_sec": 12.0})
+    clip = build_plan(res, offsets, peaks, "camA", loose)["clips"][0]
+    assert clip["goal_cam"] == "camB", "창을 넓히면 같은 히트를 받아들여야 한다"

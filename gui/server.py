@@ -362,8 +362,13 @@ SETTINGS = [
      "help": "골대 영역의 움직임을 찾아 컷 시작점을 정확히 맞춥니다. 골대 위치를 그려둔 경우에만 동작합니다."},
     {"key": "vision.enabled", "label": "AI 골 라벨링", "type": "bool",
      "help": "후보가 골인지 AI에 물어 데이터로만 기록합니다. 장면을 지우거나 화면에 표시하지 않습니다. API 키가 필요합니다."},
-    {"key": "hw_encode", "label": "하드웨어 인코딩", "type": "bool",
-     "help": "GPU로 렌더해 약 2배 빠릅니다. 결과가 이상하면 끄고 다시 시도하세요."},
+    {"key": "hw_encode", "label": "하드웨어 인코딩 (빠르지만 화질 손해)", "type": "bool",
+     "help": "GPU로 렌더해 2배 넘게 빠릅니다. 대신 같은 용량으로 화질이 떨어집니다 — "
+             "잔디처럼 잘게 무늬진 화면에서 특히 뭉개집니다. 급할 때만 켜세요."},
+    {"key": "video_crf", "label": "화질 (낮을수록 좋음)", "type": "number",
+     "min": 14, "max": 30, "step": 1,
+     "help": "18~23 사이를 권합니다. 낮추면 좋아지고 파일이 커집니다. "
+             "하드웨어 인코딩을 켜면 이 값은 쓰이지 않습니다."},
     {"key": "output_width", "label": "출력 가로", "type": "number",
      "min": 640, "max": 3840, "step": 2, "unit": "px"},
     {"key": "output_height", "label": "출력 세로", "type": "number",

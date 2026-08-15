@@ -543,4 +543,5 @@ def build_plan(pre, offsets, peaks, camA, cfg, progress=None, goal_labels=None,
     report(f"하이라이트 {len(clips)}개 구성 완료", 1.0)
     return {"fps": cfg.fps, "crossfade_sec": cfg.crossfade_sec,
             "output_width": pre["width"], "output_height": pre["height"],
-            "hw_encode": cfg.hw_encode, "clips": clips}
+            "hw_encode": cfg.hw_encode, "video_crf": cfg.video_crf,
+            "video_preset": cfg.video_preset, "clips": clips}

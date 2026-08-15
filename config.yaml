@@ -15,7 +15,12 @@ reaction:
   min_angle_switch_sec: 3 # hide angle switches shorter than this; keep the goal cam only
   tail_sec: 2           # extra seconds appended only when celebration audio actually extends
 crossfade_sec: 0.5
-hw_encode: true            # Apple VideoToolbox H.264 (실측 ~2x 빠름; false = libx264)
+hw_encode: false           # 하드웨어 인코딩(VideoToolbox/NVENC 등). ~2.6배 빠르지만
+                           # 같은 비트를 더 못 쓴다 — 실측 SSIM 에서 비트레이트를
+                           # 두 배 가까이 줘도 x264 crf20 에 졌다. 빨리 뽑아야 할 때만.
+video_crf: 20              # libx264 화질. 낮을수록 좋고 커진다 (18~23 권장).
+                           # 잔디는 H.264 에 가장 불리한 화면이라 기본값을 넉넉히 잡았다.
+video_preset: medium       # slow 로 하면 같은 crf 에서 조금 더 좋아지고 많이 느려진다
 output_width: 1920
 output_height: 1080
 # bgm_path: data/bgm.mp3   # optional background music mixed under highlight_all.mp4

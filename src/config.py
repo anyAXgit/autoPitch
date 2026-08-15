@@ -81,7 +81,12 @@ class Config:
     crossfade_sec: float = 0.5
     output_width: int = 1920
     output_height: int = 1080
-    hw_encode: bool = True   # use Apple VideoToolbox H.264 when available (~2x faster here)
+    # Hardware H.264 is ~2.6x faster and visibly worse per bit -- it lost to
+    # x264 -crf 20 even at nearly twice the bitrate (see src/ffmpeg.py). Off by
+    # default; on when a render has to be quick.
+    hw_encode: bool = False
+    video_crf: int = 20      # libx264 quality; lower = better and bigger (18-23)
+    video_preset: str = "medium"
     main_cam: "str | None" = None
     bgm_path: "str | None" = None    # optional background-music file mixed under highlight_all
     bgm_volume: float = 0.15
@@ -118,6 +123,8 @@ def load_config(path: str = "config.yaml") -> Config:
         output_width=raw.get("output_width", defaults.output_width),
         output_height=raw.get("output_height", defaults.output_height),
         hw_encode=raw.get("hw_encode", defaults.hw_encode),
+        video_crf=int(raw.get("video_crf", defaults.video_crf)),
+        video_preset=raw.get("video_preset", defaults.video_preset),
         main_cam=raw.get("main_cam", defaults.main_cam),
         bgm_path=raw.get("bgm_path", defaults.bgm_path),
         bgm_volume=raw.get("bgm_volume", defaults.bgm_volume),

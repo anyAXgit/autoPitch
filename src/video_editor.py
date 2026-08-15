@@ -183,7 +183,8 @@ def render_plan(plan, output_dir, bgm_path=None, bgm_volume=0.15, on_clip=None):
     xfade = plan["crossfade_sec"]
     width = plan.get("output_width", 1920)
     height = plan.get("output_height", 1080)
-    vargs = h264_args(plan.get("hw_encode", True))
+    vargs = h264_args(plan.get("hw_encode", False),
+                      plan.get("video_crf", 20), plan.get("video_preset", "medium"))
     clip_paths = []
     for i, clip in enumerate(plan["clips"]):
         name = f"highlight_{clip['T']:.1f}.mp4"
@@ -205,9 +206,15 @@ def render_plan(plan, output_dir, bgm_path=None, bgm_volume=0.15, on_clip=None):
             for p in clip_paths:
                 f.write(f"file '{concat_path(p)}'\n")
         all_path = os.path.join(output_dir, "highlight_all.mp4")
+        # Copy, don't re-encode. Every clip came out of the same encoder at the
+        # same size and frame rate, so joining them needs no pixels touched --
+        # and running the whole reel through H.264 a second time cost real
+        # detail: measured against the source on one clip, SSIM fell 0.9563 ->
+        # 0.9439 with the old hardware settings, 0.9907 -> 0.9866 with x264.
+        # It is also most of the render time for free.
         _ffmpeg([
             "-f", "concat", "-safe", "0", "-i", listfile,
-            *vargs, "-c:a", "aac",
+            "-c", "copy",
             all_path,
         ])
         if bgm_path and os.path.exists(bgm_path):

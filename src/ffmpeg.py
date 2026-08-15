@@ -156,11 +156,19 @@ def fps_mode_args(mode):
 # --- hardware ---------------------------------------------------------------
 # (encoder, extra args). Ordered by platform likelihood; the first that both
 # lists AND survives a probe encode wins.
+# 10M was not enough. A futsal pitch is a full frame of fine grass texture with
+# fast motion across it -- the worst case H.264 has -- and hardware rate control
+# spends bits worse than x264 does. Measured on one 1080p30 clip against the
+# source (SSIM): videotoolbox at 10M scored 0.9563, at 20M 0.9806, at 30M 0.9890.
+# x264 -crf 20 reached 0.9907 at 17 Mbps, beating hardware at nearly twice its
+# bitrate. So hardware is now the speed option, not the default, and when it is
+# chosen it gets bits enough to be worth using.
+_HW_BITRATE = "25M"
 _HW_CANDIDATES = [
-    ("h264_videotoolbox", ["-b:v", "10M", "-allow_sw", "1"]),   # Apple
-    ("h264_nvenc", ["-b:v", "10M", "-preset", "p4"]),           # NVIDIA
-    ("h264_qsv", ["-b:v", "10M"]),                              # Intel
-    ("h264_amf", ["-b:v", "10M"]),                              # AMD
+    ("h264_videotoolbox", ["-b:v", _HW_BITRATE, "-allow_sw", "1"]),   # Apple
+    ("h264_nvenc", ["-b:v", _HW_BITRATE, "-preset", "p5"]),           # NVIDIA
+    ("h264_qsv", ["-b:v", _HW_BITRATE]),                              # Intel
+    ("h264_amf", ["-b:v", _HW_BITRATE]),                              # AMD
 ]
 
 
@@ -188,19 +196,22 @@ def _hw_encoder():
     return _CACHE["hw"]
 
 
-def h264_args(hw=True):
+def h264_args(hw=False, crf=20, preset="medium"):
     """Encoder args for H.264 output.
 
-    Hardware encoding measured ~2x faster than libx264 on this workload (HEVC
-    *decode* dominates the rest). Falls back to libx264 when no usable hardware
-    encoder exists or when the config turns it off.
+    `libx264 -crf` by default: it is quality-targeted, so a still moment costs
+    few bits and a scramble in front of goal gets as many as it needs, which is
+    what a fixed bitrate cannot do. Roughly 2.6x slower than hardware here
+    (3.7s against 1.4s for an 8s clip) and worth it -- see `_HW_CANDIDATES` for
+    the numbers.
     """
     if hw:
         found = _hw_encoder()
         if found:
             enc, extra = found
             return ["-c:v", enc, *extra, "-pix_fmt", "yuv420p"]
-    return ["-c:v", "libx264", "-pix_fmt", "yuv420p"]
+    return ["-c:v", "libx264", "-crf", str(crf), "-preset", preset,
+            "-pix_fmt", "yuv420p"]
 
 
 def hwaccel_args():

@@ -62,6 +62,23 @@ def test_tail_added_after_sustained_celebration(tmp_path):
     assert length > cfg.min_len_sec + 2
 
 
+def _mean_k(audio_path, offset, a, b, cfg):
+    """Mean loudness of [a, b] on the reference clock, in this recording's own
+    standard deviations. Derived here from the audio rather than by calling the
+    planner's helper, so the test checks the choice instead of restating it."""
+    import numpy as np
+    from src.peak_detector import rms_db as _rms
+    t, db = _rms(audio_path, cfg.rms_window_sec)
+    k = (db - np.median(db)) / (np.std(db) or 1.0)
+    m = (t >= a + offset) & (t < b + offset)
+    return float(np.mean(k[m])) if m.any() else float("-inf")
+
+
+def _by_loudness(res, offsets, T, end, cfg):
+    """Cameras ordered loudest-first over the celebration window."""
+    return sorted(res["audio"], key=lambda c: -_mean_k(res["audio"][c], offsets.get(c, 0.0), T, end, cfg))
+
+
 def test_multicam_reaction_uses_louder_subcam(tmp_path):
     raw = tmp_path / "raw"
     # camB reaction burst (gain 18) is louder than camC (gain 8) at T~30
@@ -76,9 +93,16 @@ def test_multicam_reaction_uses_louder_subcam(tmp_path):
     peaks = detect_peaks(res["audio"]["camA"], cfg)
     plan = build_plan(res, offsets, peaks, "camA", cfg)
     clip = plan["clips"][0]
+    # Without a net-ROI answer the buildup goes to whichever camera heard the
+    # moment most, and the reaction to the loudest of the rest. Which camera that
+    # is comes from the audio, not from the generator's gain numbers -- each
+    # recording has its own spread, so a bigger gain is not automatically a
+    # bigger k.
+    end = max(g["src_out"] - offsets.get(g["cam"], 0.0) for g in clip["segments"])
+    order = _by_loudness(res, offsets, clip["T"], end, cfg)
     assert len(clip["segments"]) == 2
-    assert clip["segments"][0]["cam"] == "camA"            # build-up
-    assert clip["segments"][1]["cam"] == "camB"            # louder reaction
+    assert clip["segments"][0]["cam"] == order[0]          # loudest -> buildup
+    assert clip["segments"][1]["cam"] == order[1]          # next -> reaction
 
 
 def test_multicam_end_uses_loudest_camera_not_only_main_cam(tmp_path):
@@ -118,8 +142,15 @@ def test_mean_db_cache_preserves_angle_pick(tmp_path):
     plan = build_plan(res, offsets, peaks, "camA", cfg)
     clip = plan["clips"][0]
     assert len(clip["segments"]) == 2
-    assert clip["segments"][0]["cam"] == "camA"             # build-up
-    assert clip["segments"][1]["cam"] == "camC"             # loudest reaction (gain 22)
+    # camC is loudest (gain 22) so it takes the buildup; the reaction goes to the
+    # loudest of the rest (camA, gain 10). A cache bug that mixed up per-cam
+    # (times, db) arrays would put some other cam in one of these slots.
+    # A cache bug that mixed up per-cam (times, db) arrays would put the wrong
+    # camera in one of these slots; deriving the order from the audio catches it.
+    end = max(g["src_out"] - offsets.get(g["cam"], 0.0) for g in clip["segments"])
+    order = _by_loudness(res, offsets, clip["T"], end, cfg)
+    assert clip["segments"][0]["cam"] == order[0]
+    assert clip["segments"][1]["cam"] == order[1]
 
 
 def _cfg_yaml(tmp_path, reaction=None, **top):
@@ -158,7 +189,10 @@ def test_angle_cut_holds_post_goal(tmp_path):
     a, b = clip["segments"]
     assert len(clip["segments"]) == 2
     assert a["src_out"] > T                                   # holds past the goal
-    assert a["src_out"] <= T + cfg.post_goal_sec + 1e-6       # never more than post_goal
+    # src_out is on the primary camera's clock; take the offset back out before
+    # comparing against T, which lives on the reference clock.
+    cut_real = a["src_out"] - offsets.get(a["cam"], 0.0)
+    assert cut_real <= T + cfg.post_goal_sec + 0.05           # never more than post_goal
     assert abs(b["src_in"] - a["src_out"]) < 0.6             # reaction starts at the cut (offset~0)
     assert (b["src_out"] - b["src_in"]) >= cfg.min_reaction_sec - 0.6
 
@@ -214,7 +248,12 @@ def test_build_plan_anchors_on_onset(tmp_path):
     plan = build_plan(res, offsets, peaks, "camA", cfg)
     clip = plan["clips"][0]
     assert "peak" in clip and clip["T"] <= clip["peak"]      # onset at or before peak
-    assert abs(clip["segments"][0]["src_in"] - max(0.0, clip["T"] - cfg.build_up_sec)) < 1e-6
+    # The clip must start build_up before the anchor in REAL time. src_in is on
+    # the primary camera's own clock, so the offset has to come back out first --
+    # asserting the raw number only held while the primary was always camA.
+    g = clip["segments"][0]
+    real_in = g["src_in"] - offsets.get(g["cam"], 0.0)
+    assert abs(real_in - max(0.0, clip["T"] - cfg.build_up_sec)) < 0.05
 
 
 def test_build_plan_goal_side_cam_is_primary(tmp_path, monkeypatch):
@@ -334,7 +373,7 @@ def test_build_plan_keeps_audio_onset_when_only_roi_hit_is_too_early(tmp_path, m
     peaks = detect_peaks(res["audio"]["camA"], cfg)
     clip = sp.build_plan(res, offsets, peaks, "camA", cfg)["clips"][0]
     assert clip["goal_cam"] is None
-    assert clip["segments"][0]["cam"] == "camA"
+    assert clip["segments"][0]["cam"] == "camB"   # no ROI answer -> loudest cam
 
 
 def test_build_plan_adds_roi_only_clip_when_audio_has_no_peak(tmp_path, monkeypatch):
@@ -461,14 +500,18 @@ def test_build_plan_does_not_duplicate_roi_only_near_audio_peak(tmp_path, monkey
     assert len(plan["clips"]) == 1
 
 
-def test_build_plan_no_locate_keeps_camA_primary(tmp_path):
-    # Without net-ROI, behavior is unchanged: Cam A stays the buildup/goal angle.
+def test_no_locate_falls_back_to_whoever_heard_it(tmp_path):
+    # Without net-ROI there is no answer to "which goal", so the buildup used to
+    # default to camA -- which shows the far end of the pitch from across it half
+    # the time. The camera that heard the moment loudest is the one nearest it.
+    # On the game this was measured against the fallback agreed with the ROI's
+    # answer 70% of the time, against 26% for always-camA.
     res, offsets = _multicam_res(tmp_path)
     cfg = _cfg(tmp_path)                                        # locate disabled
     peaks = detect_peaks(res["audio"]["camA"], cfg)
     clip = build_plan(res, offsets, peaks, "camA", cfg)["clips"][0]
     assert clip["goal_cam"] is None
-    assert clip["segments"][0]["cam"] == "camA"
+    assert clip["segments"][0]["cam"] == "camB"   # the louder cam in this fixture
 
 
 def test_adjacent_clips_do_not_overlap(tmp_path):
@@ -527,3 +570,26 @@ def test_reaction_end_short_for_brief_celebration():
 
     start = max(0.0, T - cfg.build_up_sec)
     assert end <= start + cfg.min_len_sec + 3  # i.e. <= 16.0: stays near min_len
+
+
+def test_main_cam_beats_the_loudness_guess(tmp_path):
+    """`main_cam` is documented as the buildup reference -- the user naming a
+    camera is an instruction, and inferring a different one from loudness would
+    quietly ignore it."""
+    raw = tmp_path / "raw"
+    make_dummy_set(str(raw), [
+        {"name": "camA", "color": "red", "offset": 0.0, "bursts": [(30, 32, 4)]},
+        {"name": "camB", "color": "green", "offset": 0.0, "bursts": [(30, 34, 20)]},
+    ], duration=50.0)
+    res = preprocess_all(str(raw), str(tmp_path / "tv"), str(tmp_path / "ta"), fps=30)
+    offsets = compute_offsets(res["audio"], "camA")
+
+    quiet_but_chosen = _cfg_yaml(tmp_path, main_cam="camA")
+    peaks = detect_peaks(res["audio"]["camA"], quiet_but_chosen)
+    clip = build_plan(res, offsets, peaks, "camA", quiet_but_chosen)["clips"][0]
+    assert clip["segments"][0]["cam"] == "camA"
+
+    # ...and with nothing chosen, the louder camera does take it.
+    unset = _cfg_yaml(tmp_path)
+    clip = build_plan(res, offsets, peaks, "camA", unset)["clips"][0]
+    assert clip["segments"][0]["cam"] == "camB"

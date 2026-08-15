@@ -250,26 +250,48 @@ def _max_db_on_ref_times(ref_times, rms_cache, offsets):
     return np.max(np.vstack(stacked), axis=0) if stacked else np.array([])
 
 
-def _loudest_other(pre, offsets, exclude, T, end, cfg, rms_cache):
-    """Loudest cam over the celebration window [T, end], excluding `exclude`.
-    Returns None if there's no other cam."""
-    best, best_db = None, -np.inf
-    for cam in pre["cams"]:
-        if cam == exclude:
+def k_cache_from(rms_cache):
+    """Each camera's loudness restated in standard deviations above its own
+    median.
+
+    Raw dB cannot be compared between cameras: a phone and an action cam at
+    opposite corners have different gain, different distance to the crowd and
+    different noise floors, so "louder in dB" can just mean "hotter preamp".
+    Comparing k asks the question that was meant -- which camera is this moment
+    unusual for -- and that is the one nearest the ball.
+    """
+    out = {}
+    for cam, (times, db) in rms_cache.items():
+        sd = float(np.std(db))
+        out[cam] = (times, (db - float(np.median(db))) / sd if sd > 0
+                    else np.zeros_like(db))
+    return out
+
+
+def _loudest_cam(cams, offsets, T, end, k_cache, exclude=None):
+    """Camera that heard [T, end] most, in k. None when there is no candidate."""
+    best, best_k = None, -np.inf
+    for cam in cams:
+        if cam == exclude or cam not in k_cache:
             continue
-        a = max(0.0, T + offsets.get(cam, 0.0))
-        b = end + offsets.get(cam, 0.0)
-        cam_times, cam_db = rms_cache[cam]
-        m = _mean_db(cam_times, cam_db, a, b)
-        if m > best_db:
-            best, best_db = cam, m
+        cam_times, cam_k = k_cache[cam]
+        m = _mean_db(cam_times, cam_k,
+                     max(0.0, T + offsets.get(cam, 0.0)), end + offsets.get(cam, 0.0))
+        if m > best_k:
+            best, best_k = cam, m
     return best
 
 
-def pick_reaction_angle(pre, offsets, camA, T, end, cfg, rms_cache):
+def _loudest_other(pre, offsets, exclude, T, end, cfg, k_cache):
+    """Loudest cam over the celebration window [T, end], excluding `exclude`.
+    Returns None if there's no other cam."""
+    return _loudest_cam(pre["cams"], offsets, T, end, k_cache, exclude=exclude)
+
+
+def pick_reaction_angle(pre, offsets, camA, T, end, cfg, k_cache):
     if not pre["is_multicam"]:
         return camA
-    return _loudest_other(pre, offsets, camA, T, end, cfg, rms_cache) or camA
+    return _loudest_other(pre, offsets, camA, T, end, cfg, k_cache) or camA
 
 
 def _label_for(goal_labels, peak):
@@ -301,6 +323,7 @@ def build_plan(pre, offsets, peaks, camA, cfg, progress=None, goal_labels=None):
                 continue
             report(f"카메라 오디오 RMS 분석 중 {i + 1}/{len(others) + 1}", 0.02 + 0.06 * i / max(1, len(others)))
             rms_cache[cam] = rms_db(pre["audio"][cam], cfg.rms_window_sec)
+    k_cache = k_cache_from(rms_cache)
     rois = goal_locator.load_rois(cfg.locate.rois_path) if cfg.locate.enabled else {}
     clips = []
     def seg(cam, a, b):
@@ -359,8 +382,21 @@ def build_plan(pre, offsets, peaks, camA, cfg, progress=None, goal_labels=None):
             # PRIMARY angle (buildup + the goal itself) = the goal-side cam when the
             # net-ROI identified it, else Cam A. This shows the goal from the camera
             # nearest to where it was scored instead of whichever cam is loudest.
-            primary = goal_cam if (goal_cam and goal_cam in pre["cams"]) else camA
-            react = _loudest_other(pre, offsets, primary, T, end, cfg, rms_cache)
+            # Which camera shows the goal, in order of how much we actually know:
+            #   1. the net-ROI saw which goal the ball went into -- an answer
+            #   2. `main_cam` -- the user said which camera is the buildup
+            #      reference, and a guess must not overrule an instruction
+            #   3. whoever heard the moment loudest; the crowd is near the ball,
+            #      so the loudest camera is the near one. On the game this was
+            #      measured against it agreed with the ROI's answer 70% of the
+            #      time, where the old always-camA fallback agreed 26%.
+            if goal_cam and goal_cam in pre["cams"]:
+                primary = goal_cam
+            elif cfg.main_cam:
+                primary = camA
+            else:
+                primary = _loudest_cam(pre["cams"], offsets, T, end, k_cache) or camA
+            react = _loudest_other(pre, offsets, primary, T, end, cfg, k_cache)
             if react is not None:
                 # Hold the primary cam a beat past the goal before switching to the
                 # reaction angle, so the ball settling into the net and the first

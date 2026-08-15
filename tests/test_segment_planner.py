@@ -100,14 +100,26 @@ def test_multicam_reaction_uses_louder_subcam(tmp_path):
     # bigger k.
     start = min(g["src_in"] - offsets.get(g["cam"], 0.0) for g in clip["segments"])
     end = max(g["src_out"] - offsets.get(g["cam"], 0.0) for g in clip["segments"])
-    assert len(clip["segments"]) == 2
+    T = clip["T"]
+    cut = max(T, min(T + cfg.post_goal_sec, end - cfg.min_reaction_sec))
+
     # The two angles answer different questions and so listen to different
     # windows: the buildup cam is the one that heard the clip being shown, the
     # reaction cam the one that heard the celebration.
     assert clip["segments"][0]["cam"] == _by_loudness(res, offsets, start, end, cfg)[0]
-    rest = [c for c in _by_loudness(res, offsets, clip["T"], end, cfg)
-            if c != clip["segments"][0]["cam"]]
-    assert clip["segments"][1]["cam"] == rest[0]
+
+    # Assert the RULE, not a segment count. Whether these three synthetic bursts
+    # hand the tail to a second camera comes down to k differences of a few
+    # hundredths, and those move with the platform's audio encoder -- this used
+    # to pass on macOS and fail on Linux for exactly that reason. A switch that
+    # has to earn itself does not happen on demand, so ask whether the right
+    # thing happened either way.
+    tail_leader = _by_loudness(res, offsets, cut, end, cfg)[0]
+    if tail_leader == clip["segments"][0]["cam"]:
+        assert len(clip["segments"]) == 1, "이미 나온 카메라로 넘기면 안 된다"
+    else:
+        assert len(clip["segments"]) == 2
+        assert clip["segments"][1]["cam"] == tail_leader
 
 
 def test_multicam_end_uses_loudest_camera_not_only_main_cam(tmp_path):

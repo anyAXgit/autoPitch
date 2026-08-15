@@ -593,3 +593,40 @@ def test_main_cam_beats_the_loudness_guess(tmp_path):
     unset = _cfg_yaml(tmp_path)
     clip = build_plan(res, offsets, peaks, "camA", unset)["clips"][0]
     assert clip["segments"][0]["cam"] == "camB"
+
+
+def test_clips_do_not_overlap_when_anchors_land_close(tmp_path):
+    """Anchors are not evenly spaced by the time clips are built: `_refine_anchor`
+    moves one to the net-motion spike up to 11s ahead of its cheer, so two that
+    cleared min_gap as peaks can end up seconds apart. Only the clip END was
+    clamped, and its floor wins in exactly that case -- so the next clip's
+    buildup reached back across it and both showed the same footage. Measured on
+    one real game: 12 overlapping pairs, the worst sharing 8 of its 10 seconds.
+
+    Reproduced with a small min_gap against a larger build_up, which puts anchors
+    closer together than one buildup without needing ROI calibration. Compared in
+    reference time -- the single-cam test above compares raw src times, which
+    only holds while every segment is on one clock.
+    """
+    raw = tmp_path / "raw"
+    make_dummy_set(str(raw), [
+        {"name": "camA", "color": "red", "offset": 0.0,
+         "bursts": [(20, 22, 12), (26, 28, 12), (32, 34, 12)]},
+        {"name": "camB", "color": "green", "offset": 0.0,
+         "bursts": [(20, 22, 16), (26, 28, 8), (32, 34, 16)]},
+    ], duration=60.0)
+    res = preprocess_all(str(raw), str(tmp_path / "tv"), str(tmp_path / "ta"), fps=30)
+    cfg = _cfg_yaml(tmp_path, peak={"min_gap_sec": 3, "threshold_k": 2.0})
+    offsets = compute_offsets(res["audio"], "camA")
+    peaks = detect_peaks(res["audio"]["camA"], cfg)
+    assert len(peaks) >= 2, "인접한 피크가 두 개 이상이어야 재현된다"
+    clips = build_plan(res, offsets, peaks, "camA", cfg)["clips"]
+
+    def span(c):
+        lo = min(g["src_in"] - offsets.get(g["cam"], 0.0) for g in c["segments"])
+        hi = max(g["src_out"] - offsets.get(g["cam"], 0.0) for g in c["segments"])
+        return lo, hi
+
+    for a, b in zip(clips, clips[1:]):
+        assert span(a)[1] <= span(b)[0] + 0.05, \
+            f"clips overlap in real time: {span(a)} then {span(b)}"

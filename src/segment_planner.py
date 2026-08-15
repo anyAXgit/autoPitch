@@ -362,8 +362,18 @@ def build_plan(pre, offsets, peaks, camA, cfg, progress=None, goal_labels=None):
     report("하이라이트 컷과 앵글 구성 중", 0.94)
     anchors = _dedupe_anchors(anchors, cfg, camA)
 
+    prev_end = 0.0
     for idx, (T, peak, goal_cam, roi_only, scan_conf) in enumerate(anchors):
-        start = max(0.0, T - cfg.build_up_sec)
+        # Never open before the previous clip closed. Anchors are not evenly
+        # spaced by the time they get here: `_refine_anchor` moves one to the
+        # net-motion spike, up to max_lead (11s) ahead of its cheer, so two
+        # anchors that cleared min_gap as peaks can end up seconds apart. Only
+        # the END was clamped, and its floor (T + post_goal + min_reaction) wins
+        # when that happens -- so the next clip's buildup reached back across it
+        # and both clips showed the same seconds. Measured on one game: 12 pairs
+        # overlapping, the worst sharing 8 of its 10 seconds. Losing some buildup
+        # is the cheaper mistake; the same footage twice reads as a bug.
+        start = max(0.0, T - cfg.build_up_sec, prev_end)
         hi = start + cfg.max_len_sec
         if idx + 1 < len(anchors):
             next_start = anchors[idx + 1][0] - cfg.build_up_sec
@@ -426,6 +436,7 @@ def build_plan(pre, offsets, peaks, camA, cfg, progress=None, goal_labels=None):
                       "vision_goal": (verdict["is_goal"] if verdict else None),
                       "vision_conf": (verdict["confidence"] if verdict else None),
                       "segments": segments})
+        prev_end = end
     report(f"하이라이트 {len(clips)}개 구성 완료", 1.0)
     return {"fps": cfg.fps, "crossfade_sec": cfg.crossfade_sec,
             "output_width": pre["width"], "output_height": pre["height"],

@@ -4,8 +4,8 @@ min_len_sec: 10
 max_len_sec: 25
 peak:
   rms_window_sec: 0.5
-  threshold_k: 3.0
-  min_gap_sec: 15
+  threshold_k: 2.4
+  min_gap_sec: 6
   max_clips: null
 reaction:
   margin_db: 6

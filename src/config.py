@@ -50,8 +50,8 @@ class Config:
     min_len_sec: float = 10.0
     max_len_sec: float = 25.0
     rms_window_sec: float = 0.5
-    threshold_k: float = 3.0
-    min_gap_sec: float = 15.0
+    threshold_k: float = 2.4
+    min_gap_sec: float = 6.0
     max_clips: "int | None" = None
     margin_db: float = 6.0
     hold_sec: float = 2.0

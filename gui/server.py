@@ -643,7 +643,7 @@ def compute_plan(game, on_step=None):
     from src.config import load_config
     from src.preprocess import preprocess_all
     from src.sync_engine import compute_offsets
-    from src.peak_detector import detect_peaks
+    from src.peak_detector import detect_peaks_multicam
     from src.segment_planner import build_plan
     def step(i, n, label):
         if on_step:
@@ -689,7 +689,7 @@ def compute_plan(game, on_step=None):
     step(4, 7, "카메라 싱크 계산 중")
     offsets = compute_offsets(pre["audio"], camA) if pre["is_multicam"] else {camA: 0.0}
     step(5, 7, "함성 피크 감지 중")
-    peaks = detect_peaks(pre["audio"][camA], cfg)
+    peaks = detect_peaks_multicam(pre["audio"], offsets, camA, cfg)
     step(6, 7, "ROI 골망 모션과 앵글 구성 중")
     def plan_progress(label, frac):
         # Stage 6 is the expensive ROI/angle phase. Report subprogress between

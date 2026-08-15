@@ -3,7 +3,7 @@ import os
 from src.config import load_config
 from src.preprocess import preprocess_all
 from src.sync_engine import compute_offsets
-from src.peak_detector import detect_peaks
+from src.peak_detector import detect_peaks_multicam
 from src.segment_planner import build_plan
 from src.video_editor import render_plan
 from src.frame_extractor import extract_goal_frames
@@ -48,7 +48,7 @@ def run(
         print("[2/5] single-cam: skip sync")
 
     print("[3/5] peak detection")
-    peaks = detect_peaks(pre["audio"][camA], cfg)
+    peaks = detect_peaks_multicam(pre["audio"], offsets, camA, cfg)
     print(f"      {len(peaks)} candidate(s): {[round(p,1) for p in peaks]}")
 
     # Vision LABELS the candidates; it never removes them and never draws on the

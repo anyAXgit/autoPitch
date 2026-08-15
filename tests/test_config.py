@@ -20,4 +20,4 @@ def test_load_config_nested(tmp_path):
     assert cfg.threshold_k == 4.5
     assert cfg.max_clips == 3
     assert cfg.hold_sec == 1
-    assert cfg.min_gap_sec == 15      # untouched nested default
+    assert cfg.min_gap_sec == 6       # untouched nested default

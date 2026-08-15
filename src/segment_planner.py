@@ -6,10 +6,22 @@ from src.peak_detector import rms_db
 from src import goal_locator
 
 
-def reaction_end(times, db, T, cfg):
-    """First time after T that stays quiet for hold_sec, clamped to
-    [min_len, max_len] measured from T-build_up."""
+def reaction_end(times, db, T, cfg, peak=None):
+    """First time after the cheer that stays quiet for hold_sec, clamped to
+    [min_len, max_len] measured from T-build_up.
+
+    "After the cheer", not "after T": the net-ROI moves the anchor back to the
+    goal frame, which can be many seconds ahead of the crowd, and the gap
+    between them is quiet by definition. Searching from T found that gap and
+    closed the clip inside it -- so a clip proposed by a cheer could end before
+    its own cheer. Measured on one game: 10 of 23 hand-edited clips left under
+    3s after the peak, and the person pushed 7 of those ends out by a median of
+    5s. The worst had its cheer 4.9s past the end (17:46, cheer at 18:00, clip
+    ending 17:56) -- the goal itself was off the back of the clip.
+    """
     start = max(0.0, T - cfg.build_up_sec)
+    # Nothing before the moment that created this clip can count as "settled".
+    floor = T if peak is None else max(T, float(peak))
     lo = start + cfg.min_len_sec
     hi = start + cfg.max_len_sec
     # "Settled" must be measured against the pre-goal ambient, not the
@@ -24,7 +36,7 @@ def reaction_end(times, db, T, cfg):
     quiet_run_start = None
     end = hi
     for t, d in zip(times, db):
-        if t <= T:
+        if t <= floor:
             continue
         if d < quiet_level:
             if quiet_run_start is None:
@@ -70,7 +82,7 @@ def _pool(cfg, n):
     return max(1, min(int(getattr(cfg.locate, "workers", 6)), n, (os.cpu_count() or 2)))
 
 
-def _probe_nets(pre, offsets, onsets, cfg, rois, progress=None):
+def _probe_nets(pre, offsets, onsets, cfg, rois, progress=None, watch=None):
     """`locate_goal` for every (onset, camera) pair, run concurrently.
 
     Each probe is one ffmpeg process seeking to its own window, so they do not
@@ -92,15 +104,30 @@ def _probe_nets(pre, offsets, onsets, cfg, rois, progress=None):
         return out
     def probe(job):
         onset, cam, roi = job
-        return goal_locator.locate_goal(pre["source"][cam],
-                                        onset + offsets.get(cam, 0.0), cfg, roi)
+        src = pre["source"][cam]
+        patch = {}
+        # Only ask for the patch when someone is watching, so the plain call
+        # shape stays what it was.
+        kw = {"on_patch": lambda b, px: patch.update(gray=b, px=px)} if watch else {}
+        r = goal_locator.locate_goal(src, onset + offsets.get(cam, 0.0), cfg, roi, **kw)
+        # A still only for the ones that hit. Decoding one per probe would undo
+        # the concurrency this stage just bought; a hit is ~1 in 3, and it is the
+        # only one anybody wants to look at.
+        still = (goal_locator.still_jpeg(src, r["goal_time"])
+                 if watch and r else None)
+        return r, patch, still
 
     # Walked in submission order, not completion order, so the position the
     # caller shows moves forward through the match instead of jumping around.
     with ThreadPoolExecutor(max_workers=_pool(cfg, len(jobs))) as ex:
-        for (onset, cam, _roi), r in zip(jobs, ex.map(probe, jobs)):
+        for (onset, cam, _roi), (r, patch, still) in zip(jobs, ex.map(probe, jobs)):
             out[(onset, cam)] = r
             done += 1
+            if watch:
+                watch({"at": onset, "cam": cam, "hit": bool(r),
+                       "conf": (r["confidence"] if r else None),
+                       "goal_time": (r["goal_time"] - offsets.get(cam, 0.0)) if r else None,
+                       "patch": patch or None, "still": still})
             if progress:
                 progress(done, len(jobs), onset, cam)
     return out
@@ -358,7 +385,8 @@ def _label_for(goal_labels, peak):
     return None
 
 
-def build_plan(pre, offsets, peaks, camA, cfg, progress=None, goal_labels=None):
+def build_plan(pre, offsets, peaks, camA, cfg, progress=None, goal_labels=None,
+               watch=None):
     def report(label, frac):
         if progress:
             progress(label, max(0.0, min(1.0, float(frac))))
@@ -395,7 +423,8 @@ def build_plan(pre, offsets, peaks, camA, cfg, progress=None, goal_labels=None):
             report(f"ROI 골망 모션 확인 {done}/{total} · {cam} "
                    f"{int(at // 60)}:{int(at % 60):02d}",
                    0.10 + 0.55 * done / max(1, total))
-        probes = _probe_nets(pre, offsets, onsets, cfg, rois, progress=probe_progress)
+        probes = _probe_nets(pre, offsets, onsets, cfg, rois,
+                             progress=probe_progress, watch=watch)
     for idx, peak in enumerate(peaks):
         # Anchor timing on the cheer ONSET (goal moment), not the loudness peak,
         # so the buildup reliably contains the shot instead of starting mid-celebration.
@@ -440,7 +469,7 @@ def build_plan(pre, offsets, peaks, camA, cfg, progress=None, goal_labels=None):
             # reaction doesn't collapse when goals are absurdly close)
             hi = min(hi, max(next_start, T + cfg.post_goal_sec + cfg.min_reaction_sec))
         end_db = _max_db_on_ref_times(times, rms_cache, offsets) if pre["is_multicam"] else db
-        base_end = reaction_end(times, end_db, T, cfg)
+        base_end = reaction_end(times, end_db, T, cfg, peak)
         min_end = start + cfg.min_len_sec
         # Tail is useful after a real, sustained celebration, but adding it to
         # every minimum-length clip makes dead time drag. Only append it when

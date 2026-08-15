@@ -196,6 +196,17 @@
   .guide-note{margin-top:10px;padding:9px 11px;border-radius:8px;background:#141a22;
     border:1px solid var(--line);font-size:12px;line-height:1.6;color:#8b95a3}
   .guide-note b{color:#c7d0da}
+.scan-tl{position:relative;height:16px;margin-top:8px;border-radius:3px;
+  background:rgba(255,255,255,.07);overflow:hidden}
+.scan-tl i{position:absolute;top:0;bottom:0;width:2px;background:#7ecbff;
+  transition:left .25s linear}
+.scan-tl b{position:absolute;top:3px;bottom:3px;width:2px;background:var(--ok);
+  border-radius:1px;opacity:.85}
+.scan-row{display:flex;gap:8px;align-items:flex-start;margin-top:8px}
+.scan-row canvas{width:64px;height:64px;image-rendering:pixelated;border-radius:4px;
+  background:#000;flex:0 0 auto}
+.scan-row img{width:132px;border-radius:4px;background:#000;flex:0 0 auto;display:none}
+.scan-txt{font-size:11px;line-height:1.5;color:var(--mut);min-width:0}
 </style>
 </head>
 <body>
@@ -1004,6 +1015,17 @@ async function renderEdit(){
         <div class="job-title" id="jobTitle">작업</div>
         <div class="prog"><i id="jobProg"></i></div>
         <div class="job-detail" id="jobDetail">0%</div>
+        <!-- What the net-motion pass is looking at. The ROI patch costs nothing
+             (those pixels are decoded to score the motion either way) and is the
+             one view that shows a badly drawn box for what it is. -->
+        <div id="scanBox" hidden>
+          <div class="scan-tl" id="scanTl"><i id="scanAt"></i></div>
+          <div class="scan-row">
+            <canvas id="scanRoi" width="64" height="64" title="지금 모션을 재고 있는 골망 영역"></canvas>
+            <img id="scanStill" alt="" title="골망 히트가 잡힌 장면">
+            <div class="scan-txt" id="scanTxt"></div>
+          </div>
+        </div>
       </div>
     </div>
     <div class="nle-top">
@@ -1103,7 +1125,45 @@ async function renderEdit(){
     $('#jobPanel').hidden=false;$('#jobTitle').textContent=title;
     $('#jobProg').style.width=p+'%';$('#jobDetail').textContent=`${p}% · ${stage||''}`;
   };
-  const hideJob=()=>{$('#jobPanel').hidden=true;};
+  const hideJob=()=>{$('#jobPanel').hidden=true;$('#scanBox').hidden=true;};
+
+  /* Draw what the net-motion pass is looking at: a bar for the whole match with
+     the current position and a tick per confirmed net hit, the ROI patch being
+     measured, and a still from the most recent hit. The patch arrives as raw
+     8-bit grayscale -- 4KB, already decoded upstream -- so it costs nothing. */
+  let scanDrawn=0;
+  const showScan=sc=>{
+    if(!sc||!sc.dur){$('#scanBox').hidden=true;return;}
+    $('#scanBox').hidden=false;
+    const tl=$('#scanTl');
+    if(sc.at!=null)$('#scanAt').style.left=(100*sc.at/sc.dur)+'%';
+    const hits=sc.hits||[];
+    for(let i=scanDrawn;i<hits.length;i++){          // append only; never redraw
+      const b=document.createElement('b');
+      b.style.left=(100*hits[i].t/sc.dur)+'%';
+      b.title=`${mmss(hits[i].t)} · ${camName(hits[i].cam)} · 네트모션 ${hits[i].conf}`;
+      tl.appendChild(b);
+    }
+    scanDrawn=hits.length;
+    if(sc.patch&&sc.patch.gray){
+      const px=sc.patch.px,cv=$('#scanRoi');
+      if(cv.width!==px){cv.width=px;cv.height=px;}
+      const bin=atob(sc.patch.gray),ctx=cv.getContext('2d'),im=ctx.createImageData(px,px);
+      for(let i=0;i<px*px;i++){const v=bin.charCodeAt(i);
+        im.data[i*4]=im.data[i*4+1]=im.data[i*4+2]=v;im.data[i*4+3]=255;}
+      ctx.putImageData(im,0,0);
+    }
+    if(sc.still&&sc.still.jpeg){
+      const img=$('#scanStill');
+      img.src='data:image/jpeg;base64,'+sc.still.jpeg;img.style.display='block';
+    }
+    $('#scanTxt').innerHTML=
+      (sc.at!=null?`<b>${mmss(sc.at)}</b> · ${camName(sc.cam)} 골망 확인 중<br>`:'')
+      +`골망 히트 <b>${hits.length}</b>개`
+      +(sc.still?` · 최근 ${mmss(sc.still.t)} ${camName(sc.still.cam)}`:'');
+  };
+  const resetScan=()=>{scanDrawn=0;$('#scanTl').querySelectorAll('b').forEach(b=>b.remove());
+    $('#scanStill').style.display='none';$('#scanBox').hidden=true;};
   let jobSeq=0, activeJobToken=0;
   const beginJob=(kind,title,stage,percent)=>{
     activeJobToken=++jobSeq;
@@ -1161,6 +1221,7 @@ async function renderEdit(){
     const req=++loadReq;
     setLoadBusy(true);
     $('#edStat').textContent=fresh?'다시 분석 중':'불러오는 중';
+    resetScan();
     const jobToken=beginJob('analysis','분석', fresh?'새 분석 시작':'캐시 확인 중', 0);
     try{
       const r=await api('/api/plan_start',{method:'POST',headers:{'Content-Type':'application/json'},
@@ -1171,6 +1232,7 @@ async function renderEdit(){
           if(req!==loadReq)return;
           if(s.status==='running'){
             updateJob(jobToken,'분석',s.stage,s.percent);
+            showScan(s.scan);
             $('#edStat').textContent=s.stage||'분석 중';
             setTimeout(poll,600);
           }else if(s.status==='done'){

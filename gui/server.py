@@ -10,6 +10,7 @@ range-enabled media so the browser <video> can scrub the big source files.
 Run:  ./.venv/bin/python gui/server.py [--root .] [--port 8756]
 """
 import argparse
+import base64
 import json
 import mimetypes
 import os
@@ -671,7 +672,7 @@ def _api_key(root):
     return False
 
 
-def compute_plan(game, on_step=None):
+def compute_plan(game, on_step=None, on_scan=None):
     """Audio-only detection + planning for one game (no render). Returns plan dict."""
     from src.config import load_config
     from src.preprocess import preprocess_all
@@ -724,11 +725,17 @@ def compute_plan(game, on_step=None):
     step(5, 7, "함성 피크 감지 중")
     peaks = detect_peaks_multicam(pre["audio"], offsets, camA, cfg)
     step(6, 7, "ROI 골망 모션과 앵글 구성 중")
+    if on_scan:
+        # The progress timeline needs a fixed length up front; growing it as the
+        # scan advances would make the bar rescale under the user.
+        from src.goal_locator import _duration
+        on_scan({"init": True, "dur": _duration(pre["source"][camA]) or 0.0})
     def plan_progress(label, frac):
         # Stage 6 is the expensive ROI/angle phase. Report subprogress between
         # the completed peak-detection step (5/7) and the save step (7/7).
         step(5.0 + max(0.0, min(1.0, float(frac))), 7, label)
-    plan = build_plan(pre, offsets, peaks, camA, cfg, progress=plan_progress)
+    plan = build_plan(pre, offsets, peaks, camA, cfg, progress=plan_progress,
+                      watch=on_scan)
     view_settings = load_view_settings()
     flips = view_settings.get("flips", {})
     # rewrite src to root-relative so the browser can request /media/<rel>
@@ -849,7 +856,32 @@ def _plan_job(job_id, game, fresh):
         def on_step(i, n, label):
             job.update(progress=[i, n], percent=_percent(i, n), stage=label)
 
-        plan = compute_plan(game, on_step=on_step)
+        # What the net-motion pass is looking at right now, for the progress
+        # panel. Only the newest frame is kept -- the browser polls, so a queue
+        # would just grow -- while the confirmed hits accumulate as a list the
+        # timeline draws ticks from.
+        scan = {"dur": 0.0, "hits": [], "patch": None, "still": None,
+                "at": None, "cam": None}
+        job["scan"] = scan
+
+        def on_scan(info):
+            if info.get("init"):
+                scan["dur"] = info["dur"]
+                return
+            scan["at"], scan["cam"] = info["at"], info["cam"]
+            if info.get("patch") and info["patch"].get("gray"):
+                scan["patch"] = {"px": info["patch"]["px"],
+                                 "gray": base64.b64encode(info["patch"]["gray"]).decode()}
+            if info["hit"]:
+                scan["hits"].append({"t": round(info["goal_time"], 2),
+                                     "cam": info["cam"],
+                                     "conf": round(info["conf"], 1)})
+                if info.get("still"):
+                    scan["still"] = {"t": round(info["goal_time"], 2),
+                                     "cam": info["cam"],
+                                     "jpeg": base64.b64encode(info["still"]).decode()}
+
+        plan = compute_plan(game, on_step=on_step, on_scan=on_scan)
         job.update(status="done", progress=[1, 1], percent=100,
                    stage="분석 완료", plan=plan)
     except Exception as e:  # noqa

@@ -744,3 +744,29 @@ def test_the_angle_vote_hears_the_whole_clip_not_just_after_the_anchor():
 
     assert _loudest_cam(cams, offs, 20.0, 35.0, k) == "near"   # whole clip
     assert _loudest_cam(cams, offs, 28.0, 35.0, k) == "far"    # anchor onward: lost
+
+
+def test_clip_cannot_end_before_its_own_cheer():
+    """The quiet gap between a ROI-moved anchor and the crowd is not the end.
+
+    The net-ROI pulls the anchor back to the goal frame, which can be many
+    seconds ahead of the cheer, and everything in between is quiet by
+    definition. Searching for "settled" from the anchor found that gap and
+    closed the clip inside it -- so a clip proposed by a cheer could finish
+    before the cheer, which is to say before the goal. It was not rare: on
+    three real games, 24%, 24% and 26% of clips left under a second after
+    their own peak, the worst ending 6.4s before it.
+    """
+    import numpy as np
+    from src.segment_planner import reaction_end
+
+    cfg = Config()
+    cfg.build_up_sec, cfg.min_len_sec, cfg.max_len_sec = 5.0, 10.0, 25.0
+    cfg.hold_sec, cfg.margin_db = 1.0, 3.0
+    times = np.arange(0.0, 80.0, 0.5)
+    T, peak = 30.0, 39.0                     # ROI put the anchor 9s early
+    db = np.where((times >= peak) & (times <= peak + 6), -20.0, -50.0)
+
+    assert reaction_end(times, db, T, cfg, peak) > peak, "함성 전에 끝나면 안 된다"
+    # Without the peak it settles in the gap, at the min-length floor.
+    assert reaction_end(times, db, T, cfg) < peak

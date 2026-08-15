@@ -191,19 +191,41 @@ def event_impulse_ok(source, event_time, cfg, roi, fail_open=True):
     return active_sec <= lc.scan_max_impulse_sec
 
 
-def locate_goal(source, center_time, cfg, roi):
+def locate_goal(source, center_time, cfg, roi, on_patch=None):
     """Find the goal frame near `center_time` (this cam's source timeline) via the
     net-motion spike inside `roi`. Returns {"goal_time", "confidence"} in the same
     (source) timeline, or None if there's no prominent spike (-> caller falls back).
+
+    `on_patch(bytes, px)` receives the busiest ROI frame of the window as raw
+    grayscale. These pixels are decoded either way, so handing them out costs
+    nothing and lets the caller show what the motion score was actually looking
+    at -- which is how a badly drawn ROI (a keeper standing inside the box)
+    becomes visible instead of just producing puzzling numbers.
     """
     lc = cfg.locate
     t0 = max(0.0, center_time - lc.pre_sec)
     dur = lc.pre_sec + lc.post_sec
     frames = _roi_gray_frames(source, t0, dur, roi, lc.fps, lc.frame_px)
     events = _motion_events(frames, t0, lc.fps, lc.min_prominence)
-    if not events:
-        return None
-    return max(events, key=lambda ev: ev["confidence"])
+    best = max(events, key=lambda ev: ev["confidence"]) if events else None
+    if on_patch is not None and len(frames):
+        i = len(frames) - 1 if best is None else int(
+            round(min(max(best["goal_time"] - t0, 0.0), dur) * lc.fps))
+        frame = frames[min(i, len(frames) - 1)]
+        on_patch(frame.astype(np.uint8).tobytes(), lc.frame_px)
+    return best
+
+
+def still_jpeg(source, t, width=240, quality=4):
+    """One frame as JPEG bytes, for showing a person which scene this is."""
+    try:
+        return subprocess.run(
+            [ffmpeg(), "-v", "error", "-ss", str(max(0.0, t)), "-i", source,
+             "-frames:v", "1", "-vf", f"scale={width}:-2",
+             "-q:v", str(quality), "-f", "mjpeg", "-"],
+            capture_output=True, check=True, timeout=20).stdout or None
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
+        return None      # a missing preview is not a reason to fail an analysis
 
 
 def _scan_cache_key(source, roi, lc):

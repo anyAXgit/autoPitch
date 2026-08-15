@@ -36,6 +36,14 @@ locate:                   # net-ROI goal localization (fixed cameras); off by de
   post_sec: 0.5
   fps: 10
   min_prominence: 6        # net motion spike must exceed window median by this many MADs
+  workers: 6               # 동시에 돌릴 ffmpeg 탐색 개수. 탐색끼리는 독립이라
+                           # 겹쳐 돌릴 수 있다. ffmpeg 자체가 이미 멀티스레드라
+                           # 코어 수만큼 빨라지지는 않는다 — 10코어에서 1/4/6/8 을
+                           # 재보니 6이 가장 좋았고 1.7배였다.
+  weak_audio_max_probes: 20  # 약한 오디오 후보 중 소리 큰 순으로 몇 개까지 탐색할지.
+                           # 후보 하나 건지는 데 가장 비싼 단계다 — 실측한 경기에서
+                           # 69번 탐색에 40초를 쓰고 1개를 건졌고, 그 1개가 69개 중
+                           # 소리 1위였다. 0 이면 상한 없음(전부 탐색).
   angle_from_roi: false    # 골망 ROI 로 '어느 카메라를 보여줄지'까지 정할지.
                            # 기본 꺼짐 — 두 ROI 는 같은 것을 재지 않는다. 카메라마다
                            # 자기 옆 골대가 화면을 채우므로, 그 앞에 선 키퍼의 움직임이

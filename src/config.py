@@ -50,6 +50,15 @@ class LocateConfig:
     # are not comparable -- each camera is beside one goal, so its own net fills
     # the frame and its keeper outmoves a ball entering the far net.
     angle_from_roi: bool = False
+    # Weak-audio probing decodes one ffmpeg window per candidate, so it is the
+    # slowest stage per clip recovered. Probe only the loudest N. On the game
+    # measured, 69 probes cost 40s and yielded one clip -- and that clip was the
+    # loudest probe of the 69.
+    weak_audio_max_probes: int = 20
+    # Concurrent ffmpeg probes. ffmpeg already threads its own decode, so this
+    # tops out around 1.7x rather than scaling with cores; 6 was the best of
+    # 1/4/6/8 measured on a 10-core machine.
+    workers: int = 6
     frame_px: int = 64              # ROI downscaled to frame_px^2 for the diff
 
 
@@ -142,6 +151,8 @@ def load_config(path: str = "config.yaml") -> Config:
             weak_audio_max_lead_sec=locate.get("weak_audio_max_lead_sec", ldef.weak_audio_max_lead_sec),
             max_lead_sec=locate.get("max_lead_sec", ldef.max_lead_sec),
             angle_from_roi=locate.get("angle_from_roi", ldef.angle_from_roi),
+            weak_audio_max_probes=locate.get("weak_audio_max_probes", ldef.weak_audio_max_probes),
+            workers=locate.get("workers", ldef.workers),
             frame_px=locate.get("frame_px", ldef.frame_px),
         ),
     )

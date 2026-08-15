@@ -1,3 +1,6 @@
+import os
+from concurrent.futures import ThreadPoolExecutor
+
 import numpy as np
 from src.peak_detector import rms_db
 from src import goal_locator
@@ -62,7 +65,48 @@ def cheer_onset(times, db, peak, cfg):
     return min(onset, float(peak))
 
 
-def _refine_anchor(pre, offsets, onset, cfg, rois):
+def _pool(cfg, n):
+    """Threads for concurrent ffmpeg probes, never more than there is work."""
+    return max(1, min(int(getattr(cfg.locate, "workers", 6)), n, (os.cpu_count() or 2)))
+
+
+def _probe_nets(pre, offsets, onsets, cfg, rois, progress=None):
+    """`locate_goal` for every (onset, camera) pair, run concurrently.
+
+    Each probe is one ffmpeg process seeking to its own window, so they do not
+    depend on each other and the loop that used to run them one at a time was
+    just waiting. Seeking really is the right shape here -- decoding the whole
+    match at the ROI once measured 159s against 30s for 66 windows -- so the win
+    is in overlapping the seeks, not avoiding them. ffmpeg threads its own decode,
+    which caps this near 1.7x rather than scaling with cores.
+    """
+    jobs = []
+    for cam in pre["cams"]:
+        roi = goal_locator.roi_for_cam(cam, rois, pre["source"].get(cam))
+        if not roi:
+            continue
+        for onset in onsets:
+            jobs.append((onset, cam, roi))
+    out, done = {}, 0
+    if not jobs:
+        return out
+    def probe(job):
+        onset, cam, roi = job
+        return goal_locator.locate_goal(pre["source"][cam],
+                                        onset + offsets.get(cam, 0.0), cfg, roi)
+
+    # Walked in submission order, not completion order, so the position the
+    # caller shows moves forward through the match instead of jumping around.
+    with ThreadPoolExecutor(max_workers=_pool(cfg, len(jobs))) as ex:
+        for (onset, cam, _roi), r in zip(jobs, ex.map(probe, jobs)):
+            out[(onset, cam)] = r
+            done += 1
+            if progress:
+                progress(done, len(jobs), onset, cam)
+    return out
+
+
+def _refine_anchor(pre, offsets, onset, cfg, rois, probes=None):
     """Refine the onset anchor to the exact goal frame via the net-motion spike in
     each cam's calibrated ROI (fixed cameras). Returns `(goal_time_camA, goal_cam)`
     -- the refined time AND the cam whose net was hit (= the goal-side camera) --
@@ -73,7 +117,8 @@ def _refine_anchor(pre, offsets, onset, cfg, rois):
         if not roi:
             continue
         off = offsets.get(cam, 0.0)
-        r = goal_locator.locate_goal(pre["source"][cam], onset + off, cfg, roi)
+        r = (probes.get((onset, cam)) if probes is not None
+             else goal_locator.locate_goal(pre["source"][cam], onset + off, cfg, roi))
         if r:
             candidates.append((r["goal_time"] - off, cam, r["confidence"]))
     if not candidates:
@@ -176,22 +221,39 @@ def _weak_audio_roi_anchors(pre, offsets, cfg, rois, existing, rms_cache, camA, 
         times, db = rms_cache[cam]
         threshold = float(np.median(db) + weak_k * np.std(db))
         off = offsets.get(cam, 0.0)
-        jobs.append((cam, roi, off, _local_audio_peaks(times, db, threshold, cfg.min_gap_sec)))
-    total = sum(len(local_peaks) for _cam, _roi, _off, local_peaks in jobs)
-    done = 0
-    for cam, roi, off, local_peaks in jobs:
-        for peak_src, _loud in local_peaks:
+        local = [p for p in _local_audio_peaks(times, db, threshold, cfg.min_gap_sec)
+                 if p[0] - off >= 0]
+        jobs.extend((cam, roi, off, peak_src, loud) for peak_src, loud in local)
+
+    # This is the most expensive stage per clip it recovers: one ffmpeg decode
+    # each, and on the game measured 69 probes cost 40s and produced exactly one
+    # candidate. Spend the budget on the loudest, which is where the yield was --
+    # that one candidate was the loudest of the 69. `weak_audio_max_probes` is
+    # the cap; raise it to trade minutes for recall.
+    cap = int(getattr(cfg.locate, "weak_audio_max_probes", 0) or len(jobs))
+    if len(jobs) > cap:
+        jobs = sorted(jobs, key=lambda j: -j[4])[:cap]
+    jobs.sort(key=lambda j: j[3])
+    total, done = len(jobs), 0
+    if not jobs:
+        return []
+
+    def probe(job):
+        cam, roi, _off, peak_src, _loud = job
+        return goal_locator.locate_goal(pre["source"][cam], peak_src, cfg, roi)
+
+    with ThreadPoolExecutor(max_workers=_pool(cfg, total)) as ex:
+        for (cam, roi, off, peak_src, _loud), r in zip(jobs, ex.map(probe, jobs)):
             done += 1
             if progress:
-                progress(f"약한 오디오 후보 ROI 확인 {done}/{total} · {cam}", done, max(1, total))
-            peak_ref = peak_src - off
-            if peak_ref < 0:
-                continue
-            r = goal_locator.locate_goal(pre["source"][cam], peak_src, cfg, roi)
+                mm = f"{int(peak_src // 60)}:{int(peak_src % 60):02d}"
+                progress(f"약한 오디오 후보 ROI 확인 {done}/{total} · {cam} {mm}",
+                         done, max(1, total))
             if not r:
                 continue
             if r["confidence"] < getattr(cfg.locate, "weak_audio_min_confidence", 0.0):
                 continue
+            peak_ref = peak_src - off
             T = r["goal_time"] - off
             max_lead = getattr(cfg.locate, "weak_audio_max_lead_sec", cfg.build_up_sec)
             if T < peak_ref - max_lead or T > peak_ref + cfg.locate.post_sec:
@@ -323,18 +385,27 @@ def build_plan(pre, offsets, peaks, camA, cfg, progress=None, goal_labels=None):
     # NEXT one: min_gap (15s) < max_len (25s), so back-to-back goals could
     # otherwise overlap and duplicate the same scene in consecutive clips.
     anchors = []
-    for i, peak in enumerate(peaks, 1):
-        mm = f"{int(peak // 60)}:{int(peak % 60):02d}"
-        report(f"ROI 골망 모션 확인 {i}/{len(peaks)} · 피크 {mm}", 0.10 + 0.55 * (i - 1) / max(1, len(peaks)))
+    # Onsets are pure arithmetic on the RMS envelope, so resolve them all up
+    # front; that turns the net probes into one independent batch that can run
+    # concurrently instead of one ffmpeg call at a time down the loop.
+    onsets = [cheer_onset(times, db, peak, cfg) for peak in peaks]
+    probes = {}
+    if rois:
+        def probe_progress(done, total, at, cam):
+            report(f"ROI 골망 모션 확인 {done}/{total} · {cam} "
+                   f"{int(at // 60)}:{int(at % 60):02d}",
+                   0.10 + 0.55 * done / max(1, total))
+        probes = _probe_nets(pre, offsets, onsets, cfg, rois, progress=probe_progress)
+    for idx, peak in enumerate(peaks):
         # Anchor timing on the cheer ONSET (goal moment), not the loudness peak,
         # so the buildup reliably contains the shot instead of starting mid-celebration.
-        T = cheer_onset(times, db, peak, cfg)
+        T = onsets[idx]
         goal_cam = None
         if rois:
             # Fixed-camera net-ROI motion pinpoints the exact goal frame AND which
             # cam's net was hit (= the goal-side camera). Fall back to onset / audio
             # angle when the net isn't visible / no clear disturbance.
-            refined = _refine_anchor(pre, offsets, T, cfg, rois)
+            refined = _refine_anchor(pre, offsets, T, cfg, rois, probes)
             if refined is not None:
                 T, goal_cam = refined
         anchors.append((T, peak, goal_cam, False, None))

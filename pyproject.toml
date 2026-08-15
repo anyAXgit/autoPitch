@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "autopitch"
-version = "0.1.4"
+version = "0.2.0"
 description = "고정 카메라 풋살 영상에서 하이라이트를 자동으로 뽑는 로컬 파이프라인"
 readme = "README.md"
 license = "MIT"

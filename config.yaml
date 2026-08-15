@@ -36,6 +36,14 @@ locate:                   # net-ROI goal localization (fixed cameras); off by de
   post_sec: 0.5
   fps: 10
   min_prominence: 6        # net motion spike must exceed window median by this many MADs
+  angle_from_roi: false    # 골망 ROI 로 '어느 카메라를 보여줄지'까지 정할지.
+                           # 기본 꺼짐 — 두 ROI 는 같은 것을 재지 않는다. 카메라마다
+                           # 자기 옆 골대가 화면을 채우므로, 그 앞에 선 키퍼의 움직임이
+                           # 먼 골망에 공이 들어가는 것보다 항상 크게 잡힌다. 눈으로
+                           # 확인한 5건에서 가까운 골대 쪽 카메라가 모션은 매번 이기고
+                           # 매번 틀렸으며, 소리는 5건 다 맞혔다. ROI 는 '언제'를,
+                           # 소리는 '어디를 볼지'를 정한다. 키퍼가 빠지도록 상자를
+                           # 좁게 잡았다면 켜볼 만하다.
   max_lead_sec: 9          # 골망 히트가 함성보다 이만큼 앞서면 이 골로 인정하지 않는다.
                            # 관중은 공을 한 박자 뒤에 따라오므로, 훨씬 앞선 히트는
                            # 직전 플레이의 네트 움직임이다. 그걸 집으면 클립이 골을

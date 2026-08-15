@@ -46,6 +46,10 @@ class LocateConfig:
     # angle with it. Measured on one game: good refinements shift the anchor a
     # median 3.8s, while three angles confirmed wrong by eye sat at 9.4/10.1/11.6s.
     max_lead_sec: float = 9.0
+    # Let the net-ROI pick the camera as well as the moment. Off: the two ROIs
+    # are not comparable -- each camera is beside one goal, so its own net fills
+    # the frame and its keeper outmoves a ball entering the far net.
+    angle_from_roi: bool = False
     frame_px: int = 64              # ROI downscaled to frame_px^2 for the diff
 
 
@@ -137,6 +141,7 @@ def load_config(path: str = "config.yaml") -> Config:
             weak_audio_min_confidence=locate.get("weak_audio_min_confidence", ldef.weak_audio_min_confidence),
             weak_audio_max_lead_sec=locate.get("weak_audio_max_lead_sec", ldef.weak_audio_max_lead_sec),
             max_lead_sec=locate.get("max_lead_sec", ldef.max_lead_sec),
+            angle_from_roi=locate.get("angle_from_roi", ldef.angle_from_roi),
             frame_px=locate.get("frame_px", ldef.frame_px),
         ),
     )

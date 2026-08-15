@@ -393,17 +393,20 @@ def build_plan(pre, offsets, peaks, camA, cfg, progress=None, goal_labels=None):
             # net-ROI identified it, else Cam A. This shows the goal from the camera
             # nearest to where it was scored instead of whichever cam is loudest.
             # Which camera shows the goal, in order of how much we actually know:
-            #   1. the net-ROI saw which goal the ball went into -- an answer
-            #   2. `main_cam` -- the user said which camera is the buildup
-            #      reference, and a guess must not overrule an instruction
-            #   3. whoever heard the moment loudest; the crowd is near the ball,
-            #      so the loudest camera is the near one. On the game this was
-            #      measured against it agreed with the ROI's answer 70% of the
-            #      time, where the old always-camA fallback agreed 26%.
-            if goal_cam and goal_cam in pre["cams"]:
+            # Which camera shows the goal. The net-ROI knows which net the ball
+            # hit, but that turned out to be the wrong question to ask it: the
+            # two ROIs do not measure comparable things. Each camera sits by one
+            # goal, so its own net fills the frame and the keeper standing in it
+            # moves more pixels than a ball entering the far net ever does. On
+            # five clips checked by eye the near-net camera won on motion every
+            # time and was wrong every time; loudness named the right camera in
+            # all five. So ROI refines WHEN the goal happened, and sound decides
+            # WHERE to look. Set `locate.angle_from_roi` to put it back -- with a
+            # tightly-drawn ROI that excludes the keeper it may well be better.
+            if cfg.locate.angle_from_roi and goal_cam and goal_cam in pre["cams"]:
                 primary = goal_cam
             elif cfg.main_cam:
-                primary = camA
+                primary = camA          # an explicit instruction outranks a guess
             else:
                 primary = _loudest_cam(pre["cams"], offsets, T, end, k_cache) or camA
             react = _loudest_other(pre, offsets, primary, T, end, cfg, k_cache)

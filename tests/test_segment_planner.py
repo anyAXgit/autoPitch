@@ -336,7 +336,10 @@ def test_build_plan_prefers_near_onset_roi_over_stale_early_hit(tmp_path, monkey
     peaks = detect_peaks(res["audio"]["camA"], cfg)
     clip = sp.build_plan(res, offsets, peaks, "camA", cfg)["clips"][0]
     assert clip["goal_cam"] == "camA"
-    assert clip["segments"][0]["cam"] == "camA"
+    # The point is which hit the anchor took, not which camera ends up on screen
+    # -- the angle comes from loudness now. The stale hit sits 9s back, so a
+    # small peak-to-anchor gap means the near one won.
+    assert clip["peak"] - clip["T"] < 5.0
 
 
 def test_build_plan_prefers_near_pre_onset_roi_over_stale_early_hit(tmp_path, monkeypatch):
@@ -356,7 +359,7 @@ def test_build_plan_prefers_near_pre_onset_roi_over_stale_early_hit(tmp_path, mo
     peaks = detect_peaks(res["audio"]["camA"], cfg)
     clip = sp.build_plan(res, offsets, peaks, "camA", cfg)["clips"][0]
     assert clip["goal_cam"] == "camA"
-    assert clip["segments"][0]["cam"] == "camA"
+    assert clip["peak"] - clip["T"] < 5.0      # took the near hit, not the 8.75s one
 
 
 def test_build_plan_keeps_audio_onset_when_only_roi_hit_is_too_early(tmp_path, monkeypatch):
@@ -663,3 +666,36 @@ def test_distant_net_hit_is_not_called_this_goal(tmp_path, monkeypatch):
                                         "max_lead_sec": 12.0})
     clip = build_plan(res, offsets, peaks, "camA", loose)["clips"][0]
     assert clip["goal_cam"] == "camB", "창을 넓히면 같은 히트를 받아들여야 한다"
+
+
+def test_angle_comes_from_sound_not_the_net_roi(tmp_path, monkeypatch):
+    """Each camera sits beside one goal, so its own net fills the frame and the
+    keeper standing in it moves more pixels than a ball entering the far net.
+    On five clips checked by eye the near-net camera won on ROI motion every
+    time and was wrong every time, while loudness named the right camera in all
+    five. So the ROI says when, and sound says where to look.
+    """
+    import src.segment_planner as sp
+    res, offsets = _multicam_res(tmp_path)
+    (tmp_path / "net_rois.json").write_text('{"any":[0,0,1,1]}')
+    locate = {"enabled": True, "rois_path": str(tmp_path / "net_rois.json")}
+
+    def fake_locate(source, center_time, c, roi):
+        # camA's net "fires"; camB is the one that actually heard the moment.
+        if source.endswith("camA.mp4"):
+            return {"goal_time": center_time, "confidence": 30.0}
+        return None
+
+    monkeypatch.setattr(sp.goal_locator, "roi_for_cam", lambda *a, **k: [0, 0, 1, 1])
+    monkeypatch.setattr(sp.goal_locator, "locate_goal", fake_locate)
+
+    cfg = _cfg_yaml(tmp_path, locate=locate)
+    peaks = detect_peaks(res["audio"]["camA"], cfg)
+    clip = sp.build_plan(res, offsets, peaks, "camA", cfg)["clips"][0]
+    assert clip["goal_cam"] == "camA", "어느 네트였는지는 계속 기록되어야 한다"
+    assert clip["segments"][0]["cam"] == "camB", "앵글은 더 크게 들은 카메라"
+
+    # The toggle puts the old behaviour back for a tightly-drawn ROI.
+    cfg = _cfg_yaml(tmp_path, locate={**locate, "angle_from_roi": True})
+    clip = sp.build_plan(res, offsets, peaks, "camA", cfg)["clips"][0]
+    assert clip["segments"][0]["cam"] == "camA"

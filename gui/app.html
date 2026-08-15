@@ -196,17 +196,24 @@
   .guide-note{margin-top:10px;padding:9px 11px;border-radius:8px;background:#141a22;
     border:1px solid var(--line);font-size:12px;line-height:1.6;color:#8b95a3}
   .guide-note b{color:#c7d0da}
-.scan-tl{position:relative;height:16px;margin-top:8px;border-radius:3px;
+/* The job panel is a single-row 3-column grid strip, so this has to span all
+   of it -- as a plain fourth child it landed in the 140px title column and
+   squeezed the text to one character per line. */
+#scanBox{grid-column:1/-1;display:flex;gap:8px;align-items:center;margin-top:2px}
+#scanBox[hidden]{display:none}
+#scanRoi{width:42px;height:42px;image-rendering:pixelated;border-radius:4px;
+  background:#000;flex:0 0 auto}
+#scanStill{height:42px;width:auto;border-radius:4px;background:#000;flex:0 0 auto;
+  display:none}
+.scan-mid{flex:1 1 auto;min-width:0}
+.scan-tl{position:relative;height:12px;border-radius:3px;
   background:rgba(255,255,255,.07);overflow:hidden}
 .scan-tl i{position:absolute;top:0;bottom:0;width:2px;background:#7ecbff;
   transition:left .25s linear}
-.scan-tl b{position:absolute;top:3px;bottom:3px;width:2px;background:var(--ok);
+.scan-tl b{position:absolute;top:2px;bottom:2px;width:2px;background:var(--ok);
   border-radius:1px;opacity:.85}
-.scan-row{display:flex;gap:8px;align-items:flex-start;margin-top:8px}
-.scan-row canvas{width:64px;height:64px;image-rendering:pixelated;border-radius:4px;
-  background:#000;flex:0 0 auto}
-.scan-row img{width:132px;border-radius:4px;background:#000;flex:0 0 auto;display:none}
-.scan-txt{font-size:11px;line-height:1.5;color:var(--mut);min-width:0}
+.scan-txt{font-size:11px;line-height:1.4;color:var(--mut);margin-top:3px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 </style>
 </head>
 <body>
@@ -1019,10 +1026,10 @@ async function renderEdit(){
              (those pixels are decoded to score the motion either way) and is the
              one view that shows a badly drawn box for what it is. -->
         <div id="scanBox" hidden>
-          <div class="scan-tl" id="scanTl"><i id="scanAt"></i></div>
-          <div class="scan-row">
-            <canvas id="scanRoi" width="64" height="64" title="지금 모션을 재고 있는 골망 영역"></canvas>
-            <img id="scanStill" alt="" title="골망 히트가 잡힌 장면">
+          <canvas id="scanRoi" width="64" height="64" title="지금 모션을 재고 있는 골망 영역"></canvas>
+          <img id="scanStill" alt="" title="골망 히트가 잡힌 장면">
+          <div class="scan-mid">
+            <div class="scan-tl" id="scanTl"><i id="scanAt"></i></div>
             <div class="scan-txt" id="scanTxt"></div>
           </div>
         </div>
@@ -1157,10 +1164,11 @@ async function renderEdit(){
       const img=$('#scanStill');
       img.src='data:image/jpeg;base64,'+sc.still.jpeg;img.style.display='block';
     }
-    $('#scanTxt').innerHTML=
-      (sc.at!=null?`<b>${mmss(sc.at)}</b> · ${camName(sc.cam)} 골망 확인 중<br>`:'')
-      +`골망 히트 <b>${hits.length}</b>개`
-      +(sc.still?` · 최근 ${mmss(sc.still.t)} ${camName(sc.still.cam)}`:'');
+    $('#scanTxt').textContent=[
+      sc.at!=null?`${mmss(sc.at)} ${camName(sc.cam)} 골망 확인 중`:'',
+      `골망 히트 ${hits.length}개`,
+      sc.still?`최근 ${mmss(sc.still.t)} ${camName(sc.still.cam)}`:'',
+    ].filter(Boolean).join(' · ');
   };
   const resetScan=()=>{scanDrawn=0;$('#scanTl').querySelectorAll('b').forEach(b=>b.remove());
     $('#scanStill').style.display='none';$('#scanBox').hidden=true;};

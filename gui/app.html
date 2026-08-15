@@ -1514,7 +1514,7 @@ function bindClip(el,c){
   const drag=(handle,apply)=>{
     handle.addEventListener('mousedown',ev=>{
       ev.preventDefault();ev.stopPropagation();selId=c.id;
-      pushHist();trimming=true;hand(c);
+      pushHist();trimming=true;
       const hold=el.querySelector('.nwave');
       const mode=handle.classList.contains('l')?'left':(handle.classList.contains('r')?'right':'cut');
       if(hold&&hold.width&&hold.height)c._waveHold={url:hold.toDataURL(),w:hold.width,h:hold.height,x:0,mode};
@@ -1522,7 +1522,12 @@ function bindClip(el,c){
       const mv=e=>{const dt=(e.clientX-x0)/PXPS;
         if(c._waveHold)c._waveHold.x=mode==='left'?-dt*PXPS:0;
         apply(dt,o);renderTimeline();renderInsp();};
-      const up=()=>{trimming=false;delete c._waveHold;window.removeEventListener('mousemove',mv);window.removeEventListener('mouseup',up);renderAll();};
+      const up=()=>{trimming=false;delete c._waveHold;
+        // A press that moved nothing is not an edit. Marking on mousedown froze
+        // a clip's angle the moment a handle was so much as brushed, and the
+        // clip then kept an old camera through every re-analysis.
+        if(JSON.stringify(segs)!==JSON.stringify(o))hand(c);
+        window.removeEventListener('mousemove',mv);window.removeEventListener('mouseup',up);renderAll();};
       window.addEventListener('mousemove',mv);window.addEventListener('mouseup',up);
     });
   };
@@ -1659,6 +1664,8 @@ function renderInsp(){
       <div class="kv"><b>${mmss(clipStart(c.data))}</b><span class="mut">소리 ${mmss(c.data.T)}${c.data.goal_cam?' · 골쪽 '+camName(c.data.goal_cam):''}</span></div>
       ${c.data.roi_only?`<div class="kv" style="color:#f0b429;font-size:11px">⚠ 소리 없이 골대 움직임만 잡힌 후보${c.data.scan_conf!=null?` · 네트모션 강도 ${Math.round(c.data.scan_conf)}`:''}${c.data.roi_verdict?` · AI 판정 ${c.data.roi_verdict.is_goal?'골':'골 아님'} (${Math.round((c.data.roi_verdict.confidence||0)*100)}%)`:' · 아직 확인 안 됨, 영상을 보고 판단하세요'}</div>`:''}
       <div class="kv mut">${segs.map(s=>camName(s.cam)).join(' → ')} · ${round(clipDur(c),1)}s</div>
+      ${c.data.hand?`<div class="kv" style="font-size:11px;color:#7ecbff">✎ 직접 편집한 장면 — 다시 분석해도 이대로 유지됩니다
+        <button class="tbtn" data-act="unhand" title="이 장면만 새 탐지 결과로 되돌립니다">탐지 결과로</button></div>`:''}
     </div>
     <div class="sec"><div class="lbl">어느 카메라로 보여줄까</div><div class="kv" id="angRow"></div>
       <div class="kv mut" style="font-size:11px">한 대만 쓰거나, 중간에 다른 카메라로 넘길 수 있습니다.
@@ -1693,6 +1700,13 @@ function renderInsp(){
   box.querySelectorAll('[data-set]').forEach(b=>b.onclick=()=>setAtPlayhead(b.dataset.set));
   box.querySelector('[data-act="play"]').onclick=()=>{if(!c.include)return;seekSeq(offsetOf(seqClips().indexOf(c)));startPlay();};
   box.querySelector('[data-act="tog"]').onclick=()=>apply(()=>{c.include=!c.include;});
+  // Drop the hand mark and take the detector's current proposal for this clip.
+  // Without this a clip could be frozen with no way back and no way to see why.
+  const un=box.querySelector('[data-act="unhand"]');
+  if(un)un.onclick=()=>apply(()=>{
+    const p=(plan.clips||[]).find(d=>d.peak!=null&&c.data.peak!=null&&Math.abs(d.peak-c.data.peak)<=0.5);
+    c.data=p?JSON.parse(JSON.stringify(p)):(delete c.data.hand,c.data);
+  });
   box.querySelector('[data-act="dup"]').onclick=()=>apply(()=>{
     const i=clips.indexOf(c);
     const copy={id:nextId++,include:true,data:JSON.parse(JSON.stringify(c.data))};
@@ -1703,7 +1717,8 @@ function renderInsp(){
 function setAtPlayhead(which){
   const m=locate(playN);if(!m)return;
   const c=m.clip;selId=c.id;const segs=c.data.segments;
-  pushHist();hand(c);
+  pushHist();
+  const before=JSON.stringify(segs);
   if(which==='in'&&m.seg===0)segs[0].src_in=clamp(m.src,0,segs[0].src_out-0.5);
   else if(which==='out'){const g=segs[segs.length-1];if(m.seg===segs.length-1)g.src_out=Math.max(g.src_in+0.5,m.src);}
   else if(which==='cut'&&segs.length>1){
@@ -1711,6 +1726,7 @@ function setAtPlayhead(which){
     const nv=clamp(segs[0].src_in+u,segs[0].src_in+0.5,segs[0].src_out+segDur(segs[1])-0.5);
     const d=nv-segs[0].src_out;segs[0].src_out=nv;segs[1].src_in=Math.max(0,segs[1].src_in+d);
   }
+  if(JSON.stringify(segs)!==before)hand(c);
   renderAll();
 }
 

@@ -969,7 +969,7 @@ async function renderEdit(){
       <span class="mut">|</span>
       <button class="tbtn" id="nUndo" title="Cmd+Z" disabled>↩︎</button>
       <button class="tbtn" id="nRedo" title="Cmd+Shift+Z" disabled>↪︎</button>
-      <span id="edStat" class="mut" style="margin-left:6px"></span>
+      <span id="edStat" class="mut" style="margin-left:6px"></span><span id="edSaved" class="mut" style="margin-left:8px"></span>
       <span style="margin-left:auto"></span>
       <label class="mut" style="font-size:12px">출력 폴더 <input id="edOut" value="${window._edOut||'data/output/gui'}" style="width:160px" title="프로젝트 안의 출력 폴더"></label>
       <button class="tbtn" id="edOutPick">선택</button>
@@ -1151,6 +1151,7 @@ async function renderEdit(){
     clips=plan.clips.map(d=>({id:nextId++,data:d,include:true}));
     hist=[];future=[];selId=clips.length?clips[0].id:null;playN=0;autoFit=true;
     $('#edStat').textContent=plan.cached?'캐시 로드됨':`${plan.clips.length}개 하이라이트 감지`;
+    restoreEdit();
     $('#edXf').value=plan.crossfade_sec;
     $('#edXf').onchange=e=>{plan.crossfade_sec=Math.max(0,parseFloat(e.target.value)||0);renderTimeline();};
     renderAll();seekSeq(0);
@@ -1394,7 +1395,7 @@ function renderTimeline(){
     el.style.left=x+'px';el.style.width=w+'px';el.dataset.id=c.id;el.draggable=true;
     el.innerHTML=`<canvas class="nwave"></canvas>
       ${segHtml}
-      <div class="nlabel">${mmss(c.data.T)} · ${round(d,1)}s${c.data.goal_label?' · <span style="color:#37d67a;font-weight:700">GOAL</span>':''}${c.data.goal_cam?' · 🥅'+camName(c.data.goal_cam):''}${c.data.roi_only?` · <span style="color:#f0b429">ROI?${c.data.scan_conf!=null?' '+Math.round(c.data.scan_conf):''}</span>`:''}</div>
+      <div class="nlabel">${mmss(clipStart(c.data))} · ${round(d,1)}s${c.data.goal_label?' · <span style="color:#37d67a;font-weight:700">GOAL</span>':''}${c.data.goal_cam?' · 🥅'+camName(c.data.goal_cam):''}${c.data.roi_only?` · <span style="color:#f0b429">ROI?${c.data.scan_conf!=null?' '+Math.round(c.data.scan_conf):''}</span>`:''}</div>
       <div class="ncams">${segs.map(s=>camName(s.cam)).join(' → ')}</div>
       <div class="trim l"></div><div class="trim r"></div>
       <button class="ndel" title="제외 (⌫)">✕</button>`;
@@ -1415,7 +1416,41 @@ function renderTimeline(){
   const sel=selClip();const gl=$('#nGoalLbl');if(gl)gl.classList.toggle('on',!!(sel&&sel.data.goal_label));
   playN=Math.min(playN,total);updatePh();
 }
-function renderAll(){renderTimeline();renderLib();renderInsp();updUndo();}
+
+/* Bring back the saved edit, if there is one. Clips the detector no longer
+   proposes are kept: the person put them there on purpose, and a re-run that
+   silently deleted them would be worse than not restoring at all. */
+async function restoreEdit(){
+  editLoaded=false;
+  try{
+    const r=await api('/api/edit?game='+encodeURIComponent(window._edGameKey||''));
+    if(r&&r.clips&&r.clips.length){
+      clips=r.clips.map(c=>({id:nextId++,include:c.include!==false,data:c.data}));
+      selId=clips.length?clips[0].id:null;
+      const el=$('#edSaved');
+      if(el)el.textContent='저장된 편집 불러옴 ('+clips.filter(c=>c.include).length+'개 포함)';
+      renderTimeline();renderLib();renderInsp();updUndo();
+    }
+  }catch(e){/* no saved edit, or unreadable -- open the fresh detection */}
+  editLoaded=true;
+}
+function renderAll(){renderTimeline();renderLib();renderInsp();updUndo();saveEditSoon();}
+
+/* Persist the edit, debounced. The detection cache holds what the pipeline
+   found; this holds what the person decided about it, and re-running detection
+   must not throw that away. */
+let saveTimer=null, editLoaded=false;
+function saveEditSoon(){
+  if(!editLoaded||!window._edGameKey)return;      // don't save over an edit we haven't read yet
+  clearTimeout(saveTimer);
+  saveTimer=setTimeout(async()=>{
+    try{
+      await api('/api/edit',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({game:window._edGameKey,clips:snapState()})});
+      const el=$('#edSaved');if(el)el.textContent='편집 저장됨';
+    }catch(e){const el=$('#edSaved');if(el)el.textContent='저장 실패: '+e.message;}
+  },800);
+}
 
 /* ---- clip interactions: select / trim / cut / reorder / exclude ---- */
 let trimming=false;
@@ -1521,7 +1556,7 @@ function renderLib(){
     const badge=d.roi_only
       ? `<span style="color:#f0b429" title="ROI 스캔 · 함성 없음 · 미검증">ROI?${d.scan_conf!=null?' '+Math.round(d.scan_conf):''}</span>`
       : `<span style="color:var(--ok)" title="함성으로 확인된 골">♪</span>`;
-    el.innerHTML=`<span class="t">${mmss(d.T)}</span> ${badge}
+    el.innerHTML=`<span class="t">${mmss(clipStart(d))}</span> ${badge}
       <span class="mut">${d.segments.map(s=>camName(s.cam)).join('→')} · ${round(clipDur(c),1)}s</span>
       <button class="tbtn tog${c.include?' on':''}" data-tog
         title="${c.include?'클릭하면 결과물에서 뺍니다':'클릭하면 결과물에 넣습니다'}"
@@ -1537,6 +1572,14 @@ function renderLib(){
 /* ---- angle configuration: single-cam or ordered two-angle setup ----
    All cams share one real-time axis via plan.offsets (camA-time = src - offset),
    so segments can be rebuilt for any cam order without losing the moment. */
+/* Where the clip actually starts, on the shared camA clock. The label used to
+   show `T`, the anchor the detector proposed -- so dragging the start moved the
+   footage and left the number where it was, and two clips trimmed differently
+   read as the same moment. */
+function clipStart(d){
+  const off=(plan&&plan.offsets)||{};
+  return Math.min(...d.segments.map(g=>g.src_in-(off[g.cam]||0)));
+}
 function camMap(){
   const m={};
   clips.forEach(c=>c.data.segments.forEach(g=>{m[g.cam]={src:g.src,src_rel:g.src_rel,hflip:!!g.hflip};}));
@@ -1563,7 +1606,7 @@ function renderInsp(){
   const segs=c.data.segments,two=segs.length>1;
   box.innerHTML=`
     <div class="sec"><div class="lbl">선택한 하이라이트</div>
-      <div class="kv"><b>${mmss(c.data.T)}</b><span class="mut">peak ${round(c.data.peak,1)}${c.data.goal_cam?' · 골쪽 '+camName(c.data.goal_cam):''}</span></div>
+      <div class="kv"><b>${mmss(clipStart(c.data))}</b><span class="mut">소리 ${mmss(c.data.T)}${c.data.goal_cam?' · 골쪽 '+camName(c.data.goal_cam):''}</span></div>
       ${c.data.roi_only?`<div class="kv" style="color:#f0b429;font-size:11px">⚠ 소리 없이 골대 움직임만 잡힌 후보${c.data.scan_conf!=null?` · 네트모션 강도 ${Math.round(c.data.scan_conf)}`:''}${c.data.roi_verdict?` · AI 판정 ${c.data.roi_verdict.is_goal?'골':'골 아님'} (${Math.round((c.data.roi_verdict.confidence||0)*100)}%)`:' · 아직 확인 안 됨, 영상을 보고 판단하세요'}</div>`:''}
       <div class="kv mut">${segs.map(s=>camName(s.cam)).join(' → ')} · ${round(clipDur(c),1)}s</div>
     </div>

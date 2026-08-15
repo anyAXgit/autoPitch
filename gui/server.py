@@ -600,6 +600,39 @@ def _plan_cache_path(game):
     return os.path.join(STATE["root"], "data", "_gui", f"plan_game_{_game_cache_key(game)}.json")
 
 
+def _edit_path(game):
+    """Where a game's manual edit lives -- separate from the detection cache.
+
+    Re-running detection replaces the plan; it must not replace the hour someone
+    spent deciding which of those clips to keep and where to cut them.
+    """
+    return os.path.join(STATE["root"], "data", "_gui", f"edit_{_game_cache_key(game)}.json")
+
+
+def load_edit(game):
+    p = _edit_path(game)
+    if not os.path.exists(p):
+        return None
+    try:
+        with open(p, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return None          # a corrupt edit must not block opening the game
+
+
+def save_edit(game, clips):
+    p = _edit_path(game)
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    tmp = p + ".tmp"
+    payload = {"saved_at": time.time(), "clips": clips}
+    # Write and rename: a crash mid-save would otherwise leave a truncated file
+    # where the user's edit used to be.
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False)
+    os.replace(tmp, p)
+    return payload
+
+
 def cached_plan(game):
     """Return the cached plan if it exists and is newer than config.yaml and
     net_rois.json (recalibrating or retuning must invalidate it)."""
@@ -1145,6 +1178,8 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     plan["cached"] = True
                 return self._json(plan)
+            if u.path == "/api/edit":
+                return self._json(load_edit(q.get("game", [""])[0]) or {"clips": None})
             if u.path == "/api/plan_status":
                 job = PLAN_JOBS.get(q.get("job", [""])[0])
                 return self._json(job if job else {"status": "error", "error": "unknown job"})
@@ -1275,6 +1310,8 @@ class Handler(BaseHTTPRequestHandler):
                 d[body["cam"]] = body["quad"]
                 json.dump(d, open(p, "w", encoding="utf-8"), indent=2)
                 return self._json({"ok": True})
+            if u.path == "/api/edit":
+                return self._json(save_edit(body["game"], body["clips"]))
             if u.path == "/api/render":
                 job = start_render(body["plan"], body.get("out", "data/output/gui"),
                                    body.get("bgm"), body.get("bgm_volume", 0.15),

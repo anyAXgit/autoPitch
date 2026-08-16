@@ -1683,9 +1683,13 @@ function renderLib(){
   view.forEach(c=>{
     const d=c.data,el=document.createElement('div');
     el.className='lib-item'+(c.id===selId?' sel':'')+(c.include?'':' off');
+    // The row is headed by the clip's START, which is what the timeline shows and
+    // what you drag -- but it is not what anyone is looking for. Someone hunting
+    // "the goal at 18:38" reads a row labelled 18:32 and concludes it was never
+    // found. Put the cheer beside it.
     const badge=d.roi_only
       ? `<span style="color:#f0b429" title="ROI 스캔 · 함성 없음 · 미검증">ROI?${d.scan_conf!=null?' '+Math.round(d.scan_conf):''}</span>`
-      : `<span style="color:var(--ok)" title="함성으로 확인된 골">♪</span>`;
+      : `<span style="color:var(--ok)" title="함성이 터진 시각 (장면 시작이 아니라 그 순간)">♪${mmss(d.peak)}</span>`;
     el.innerHTML=`<span class="t">${mmss(clipStart(d))}</span> ${badge}
       <span class="mut">${d.segments.map(s=>camName(s.cam)).join('→')} · ${round(clipDur(c),1)}s</span>
       <button class="tbtn tog${c.include?' on':''}" data-tog

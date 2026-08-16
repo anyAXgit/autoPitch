@@ -639,6 +639,75 @@ def save_edit(game, clips):
     return payload
 
 
+def clear_game_cache(game, drop_edit=False):
+    """Throw away everything derived for one game so the next run starts clean.
+
+    "처음부터 다시" only skips the plan cache. The extracted audio, the ROI scan
+    results and -- most confusingly -- the saved edit all survive it, and the
+    edit is drawn OVER a fresh detection, so a re-analysis can look like it
+    changed nothing. This removes the lot.
+
+    The edit is hours of somebody's decisions, so it is only touched when asked
+    for and it is copied aside first, never deleted outright.
+    """
+    root = STATE["root"]
+    key = _game_cache_key(_find_game(game))
+    gui = os.path.join(root, "data", "_gui")
+    removed, freed = [], 0
+
+    def rm(path, label):
+        nonlocal freed
+        if not os.path.exists(path):
+            return
+        freed += _tree_size(path)
+        shutil.rmtree(path) if os.path.isdir(path) else os.remove(path)
+        removed.append(label)
+
+    rm(os.path.join(gui, f"plan_game_{key}.json"), "탐지 결과")
+    rm(os.path.join(gui, f"ta_{key}"), "추출한 분석 오디오")
+    if drop_edit:
+        edit = os.path.join(gui, f"edit_{key}.json")
+        if os.path.exists(edit):
+            backup = edit + ".bak"
+            shutil.copy2(edit, backup)
+            freed += _tree_size(edit)
+            os.remove(edit)
+            removed.append(f"편집 (사본을 {os.path.basename(backup)} 로 남김)")
+
+    # The ROI scan cache is keyed by (source, roi, params) and shared by every
+    # game, so drop only this game's cameras' entries.
+    scan = os.path.join(gui, "roi_scan_cache.json")
+    if os.path.exists(scan):
+        try:
+            with open(scan, encoding="utf-8") as fh:
+                cache = json.load(fh)
+            srcs = {os.path.abspath(os.path.join(root, c["path"]))
+                    for c in _find_game(game)["cameras"]}
+            keep = {k: v for k, v in cache.items()
+                    if not (json.loads(k) and json.loads(k)[0] in srcs)}
+            if len(keep) != len(cache):
+                with open(scan, "w", encoding="utf-8") as fh:
+                    json.dump(keep, fh)
+                removed.append(f"골망 스캔 캐시 {len(cache) - len(keep)}건")
+        except (json.JSONDecodeError, OSError, ValueError, IndexError):
+            pass      # a corrupt cache is regenerated anyway
+
+    return {"removed": removed, "freed_mb": round(freed / 1e6, 1)}
+
+
+def _tree_size(path):
+    if os.path.isfile(path):
+        return os.path.getsize(path)
+    total = 0
+    for root_, _dirs, files in os.walk(path):
+        for n in files:
+            try:
+                total += os.path.getsize(os.path.join(root_, n))
+            except OSError:
+                pass
+    return total
+
+
 def cached_plan(game):
     """Return the cached plan if it exists and is newer than config.yaml and
     net_rois.json (recalibrating or retuning must invalidate it)."""
@@ -1345,6 +1414,9 @@ class Handler(BaseHTTPRequestHandler):
             if u.path == "/api/plan_start":
                 job = start_plan_job(body["game"], bool(body.get("fresh")))
                 return self._json({"job": job})
+            if u.path == "/api/clear_cache":
+                return self._json(clear_game_cache(body["game"],
+                                                   bool(body.get("drop_edit"))))
             if u.path == "/api/analysis_start":
                 p = os.path.join(STATE["root"], "court_quads.json")
                 quads = json.load(open(p, encoding="utf-8")) if os.path.exists(p) else {}

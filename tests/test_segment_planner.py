@@ -11,7 +11,11 @@ from src.sync_engine import compute_offsets
 def _cfg(tmp_path, **peak):
     import yaml
     d = {"build_up_sec": 5, "min_len_sec": 8, "max_len_sec": 20,
-         "peak": {"min_gap_sec": 5, "threshold_k": 2.0}}
+         "peak": {"min_gap_sec": 5, "threshold_k": 2.0},
+         # Without this the suite writes its throwaway sources into the user's
+         # real scan cache. Checked on this machine: 904 of 910 entries in
+         # data/_gui/roi_scan_cache.json were pytest temp paths.
+         "locate": {"scan_cache": str(tmp_path / "scan_cache.json")}}
     d["peak"].update(peak)
     p = tmp_path / "config.yaml"
     p.write_text(yaml.safe_dump(d))
@@ -173,6 +177,8 @@ def _cfg_yaml(tmp_path, reaction=None, **top):
     d = {"build_up_sec": 5, "min_len_sec": 8, "max_len_sec": 20,
          "peak": {"min_gap_sec": 5, "threshold_k": 2.0}}
     d.update(top)
+    d.setdefault("locate", {})          # keep the suite out of the real cache
+    d["locate"].setdefault("scan_cache", str(tmp_path / "scan_cache.json"))
     if reaction:
         d["reaction"] = reaction
     p = tmp_path / "config.yaml"

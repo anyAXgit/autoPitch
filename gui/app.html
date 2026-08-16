@@ -983,7 +983,8 @@ async function renderEdit(){
       <b style="font-size:13px">경기</b>
       <select id="edGame">${sessionGames.map(g=>`<option value="${gameKey(g)}">경기 ${gameNo(g)}</option>`).join('')}</select>
       <button class="btn primary" id="edLoad">장면 찾기</button>
-      <button class="btn" id="edFresh" title="캐시를 버리고 오디오·골대 영역을 처음부터 다시 분석합니다">처음부터 다시</button>
+      <button class="btn" id="edFresh" title="저장된 탐지 결과를 무시하고 다시 분석합니다. 편집은 그대로 남습니다.">처음부터 다시</button>
+      <button class="btn" id="edWipe" title="이 경기의 저장된 것을 전부 지우고 처음 상태로 되돌립니다">캐시 비우기</button>
       <span class="mut">|</span>
       <button class="tbtn" id="nUndo" title="Cmd+Z" disabled>↩︎</button>
       <button class="tbtn" id="nRedo" title="Cmd+Shift+Z" disabled>↪︎</button>
@@ -1278,6 +1279,29 @@ async function renderEdit(){
   $('#edGame').onchange=e=>{window._edGameKey=e.target.value;};
   $('#edLoad').onclick=()=>load(false);
   $('#edFresh').onclick=()=>load(true);
+  // "처음부터 다시" only skips the plan cache. The extracted audio, the goal-net
+  // scan results and the saved edit all survive it -- and the edit is drawn over
+  // the fresh detection, so a re-run can look like it changed nothing at all.
+  // This is the way back to a clean slate.
+  $('#edWipe').onclick=async()=>{
+    const game=$('#edGame').value;
+    if(!confirm('이 경기의 저장된 것을 전부 지웁니다.\n\n'
+      +'  · 찾아둔 장면 (탐지 결과)\n  · 추출해 둔 분석용 오디오\n  · 골망 스캔 결과\n\n'
+      +'편집(포함·제외·자른 시간·앵글)은 남깁니다. 편집까지 지우려면 다음 물음에 확인하세요.'))return;
+    const dropEdit=confirm('편집한 내용도 지울까요?\n\n'
+      +'취소 = 편집은 남기고 탐지만 다시 합니다 (권장)\n'
+      +'확인 = 편집도 지웁니다. 지우기 전에 사본을 .bak 으로 남깁니다.');
+    try{
+      const r=await api('/api/clear_cache',{method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({game,drop_edit:dropEdit})});
+      if(dropEdit){clips=[];selId=null;editLoaded=false;renderTimeline();renderLib();renderInsp();}
+      $('#edStat').textContent=(r.removed||[]).length
+        ? `지움: ${r.removed.join(' · ')} (${r.freed_mb}MB)`
+        : '지울 것이 없었습니다';
+      load(true);
+    }catch(e){$('#edStat').textContent='캐시 비우기 실패: '+e.message;}
+  };
   let dirTarget=null, dirCur='';
   const chooseNativeDir=async(target,initial)=>{
     try{

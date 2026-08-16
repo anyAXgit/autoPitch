@@ -239,6 +239,13 @@ def _scan_cache_key(source, roi, lc):
                       sort_keys=True)
 
 
+def _cached_source_exists(key):
+    try:
+        return os.path.exists(json.loads(key)[0])
+    except (json.JSONDecodeError, IndexError, TypeError):
+        return False          # unreadable key: nothing can use it anyway
+
+
 def scan_goal_events(source, cfg, roi, min_gap_sec, cache_path=None):
     """Find ROI-only candidate goals across the whole source.
 
@@ -290,6 +297,11 @@ def scan_goal_events(source, cfg, roi, min_gap_sec, cache_path=None):
             refined.append(ev)
 
     if cache_path:
+        # Drop entries whose source is gone. Keys carry an absolute path, so a
+        # cache accumulates dead ones -- temp files, footage that moved, a drive
+        # unplugged -- and it only ever grew.
+        cache = {k: v for k, v in cache.items()
+                 if _cached_source_exists(k)}
         cache[key] = refined
         os.makedirs(os.path.dirname(cache_path) or ".", exist_ok=True)
         with open(cache_path, "w", encoding="utf-8") as f:

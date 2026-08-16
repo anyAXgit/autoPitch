@@ -1486,7 +1486,13 @@ function renderTimeline(){
     const segHtml=segs.map((sg,si)=>{const sw=segDur(sg)/d*w,left=sx;sx+=sw;return `<div class="nseg s${si%2}" style="left:${left}px;width:${sw}px"></div>${si<segs.length-1?`<div class="ncut" style="left:${sx}px" title="앵글 전환 — 크로스페이드 ${plan.crossfade_sec>0?plan.crossfade_sec+'s':'없음(하드컷)'}"></div>`:''}`;}).join('');
     const el=document.createElement('div');
     el.className='nclip'+(c.id===selId?' selected':'');
-    el.style.left=x+'px';el.style.width=w+'px';el.dataset.id=c.id;el.draggable=true;
+    el.style.left=x+'px';el.style.width=w+'px';el.dataset.id=c.id;
+    // Not draggable while a handle is held. Every mousemove of a trim rebuilds
+    // this lane from scratch, so the element the pointer is over is replaced
+    // mid-gesture -- and a fresh `draggable=true` one is exactly what the
+    // browser needs to start its own drag on top of the trim. Whoever is
+    // dragging then gets a ghost image and loses the edit.
+    el.draggable=!trimming;
     el.innerHTML=`<canvas class="nwave"></canvas>
       ${segHtml}
       <div class="nlabel">${mmss(clipStart(c.data))} · ${round(d,1)}s${c.data.goal_label?' · <span style="color:#37d67a;font-weight:700">GOAL</span>':''}${c.data.goal_cam?' · 🥅'+camName(c.data.goal_cam):''}${c.data.roi_only?` · <span style="color:#f0b429">ROI?${c.data.scan_conf!=null?' '+Math.round(c.data.scan_conf):''}</span>`:''}</div>
@@ -1612,6 +1618,7 @@ function bindClip(el,c){
   el.querySelector('.ndel').onclick=ev=>{ev.stopPropagation();pushHist();c.include=false;fixSel();renderAll();};
   const drag=(handle,apply)=>{
     handle.addEventListener('mousedown',ev=>{
+      el.draggable=false;      // this element; re-renders read `trimming`
       ev.preventDefault();ev.stopPropagation();selId=c.id;
       pushHist();trimming=true;
       const hold=el.querySelector('.nwave');
@@ -1621,7 +1628,7 @@ function bindClip(el,c){
       const mv=e=>{const dt=(e.clientX-x0)/PXPS;
         if(c._waveHold)c._waveHold.x=mode==='left'?-dt*PXPS:0;
         apply(dt,o);renderTimeline();renderInsp();};
-      const up=()=>{trimming=false;delete c._waveHold;
+      const up=()=>{trimming=false;el.draggable=true;delete c._waveHold;
         // A press that moved nothing is not an edit. Marking on mousedown froze
         // a clip's angle the moment a handle was so much as brushed, and the
         // clip then kept an old camera through every re-analysis.
@@ -1637,7 +1644,14 @@ function bindClip(el,c){
     const nv=clamp(o[0].src_out+dt,segs[0].src_in+0.5,o[0].src_out+(o[1].src_out-o[1].src_in)-0.5);
     const d=nv-o[0].src_out;segs[0].src_out=nv;segs[1].src_in=Math.max(0,o[1].src_in+d);
   });
-  el.addEventListener('dragstart',()=>{selId=c.id;});
+  el.addEventListener('dragstart',ev=>{
+    // Belt and braces: if a drag still gets through while a handle is held, or
+    // it started on a handle, refuse it rather than losing the trim.
+    if(trimming||(ev.target.closest&&ev.target.closest('.trim,.ncut,.ndel'))){
+      ev.preventDefault();return false;
+    }
+    selId=c.id;
+  });
   el.addEventListener('dragover',ev=>ev.preventDefault());
   el.addEventListener('drop',ev=>{
     ev.preventDefault();
